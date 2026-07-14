@@ -9,28 +9,24 @@ Coding agents like Claude Code, Codex, Cursor, Copilot, Windsurf, Kiro,
 Antigravity, and opencode act on **skills** (folders of persistent
 instructions: `SKILL.md` plus references and scripts) and on standing
 instruction files (rules, steering, custom instructions). Both change what
-the agent does in every future session. They accumulate from
-repos, marketplaces, and pasted snippets, and they sit there quietly steering
-your agent long after you have forgotten where they came from.
+the agent does in every future session, and they accumulate from repos,
+marketplaces, and pasted snippets long after you have forgotten where they
+came from.
 
 ## Why I built skill-discovery
 
 Skills fix agent amnesia, and tools like
 [skill-extractor](https://github.com/surenode-ai/skill-extractor) make them
 cheap to create. That created the next problem: I could not tell you what was
-installed on my own laptop. A skill arrives with a cloned repo, an install
-script, a teammate's paste, and from then on it is a standing instruction your
-agent follows. Research such as NVIDIA's
+installed on my own laptop. Research such as NVIDIA's
 [SkillSpector](https://github.com/NVIDIA/skillspector) has documented real
-malicious-skill patterns (environment dumps, hidden Office and zip payloads,
-prompt injection aimed at the scanner itself), so "I probably know what's
-installed" stopped being a good enough answer.
+malicious-skill patterns in the wild, so "I probably know what's installed"
+stopped being a good enough answer.
 
 skill-discovery is the smallest useful response: a single command that walks
 the known skill folders and instruction files on a machine and reports what
-is actually there. Run
-it yourself out of curiosity. Run it across a fleet on a schedule and your
-security team gets an inventory instead of a guess.
+is actually there. Run it yourself out of curiosity, or across a fleet on a
+schedule so your security team gets an inventory instead of a guess.
 
 ## Quick start
 
@@ -41,10 +37,11 @@ skill-discovery --dry-run
 
 That checks every known agent's skill roots and instruction-file locations
 (see the [support matrix](#agent-support-matrix)) and prints a JSON inventory
-of what it found: names, descriptions, per-folder fingerprints, and local
-detection findings. `--dry-run` makes **zero network calls**. Nothing leaves your
-machine and no server is involved. Add `--project ~/work/myrepo` to include a
-repo's project-level skills, or `--path <dir>` for any other folder.
+on stdout, with a human-readable list of checked vs found locations (each
+labeled `skills` or `rules`) on stderr. `--dry-run` makes **zero network
+calls**: nothing leaves your machine, and it shows exactly what a report
+would contain before you deploy anything. Add `--project ~/work/myrepo` to
+include a repo's project-level skills, or `--path <dir>` for any other folder.
 
 For each skill you get:
 
@@ -60,11 +57,6 @@ For each skill you get:
   ran (`heuristics` vs `skillspector+heuristics`).
 - **Sanitization findings**: secrets and PII that would be redacted before any
   upload, plus personal home-directory paths worth knowing about.
-
-Be clear about what this is: **observation, not judgment**. The tool
-inventories what exists and attaches findings. It does not certify skills, it
-does not claim detection completeness, and a report with zero findings means
-"nothing our local rules noticed", nothing more.
 
 ## Agent support matrix
 
@@ -85,21 +77,20 @@ sanitized, and scanned exactly like a skill.
 | GitHub Copilot (`copilot`) | `~/.copilot/skills`, `.github/skills` (also reads the shared and Claude locations) | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md` | [Copilot skills](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills), [Copilot instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot) |
 | Kiro, AWS (`kiro`) | `~/.kiro/skills`, `.kiro/skills` | steering: `~/.kiro/steering/*.md`, `.kiro/steering/*.md` | [Kiro skills](https://kiro.dev/docs/skills/), [Kiro steering](https://kiro.dev/docs/steering/) |
 
-Several agents also read the shared `.agents/skills` and Claude-compatible
+Several agents read the shared `.agents/skills` and Claude-compatible
 locations. Those are listed once, under the entry that owns the convention,
 and any root two agents share is scanned only once, so nothing is double
-counted. The dry-run summary on stderr labels every location as `skills` or
-`rules` so you can tell which kind produced each item.
+counted.
 
 The registry lives in [`discovery/agents.py`](discovery/agents.py) and is the
 single most wanted community contribution: one small, documented entry adds
-support for another agent. Every path must be citable to the agent vendor's
-docs. See [CONTRIBUTING.md](CONTRIBUTING.md).
+support for another agent, and every path must be citable to the agent
+vendor's docs. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## CLI reference
 
 ```bash
-skill-discovery --dry-run                          # all agents, print, no network
+skill-discovery --dry-run                          # all agents
 skill-discovery --agent claude --dry-run           # one agent only
 skill-discovery --project ~/work/repo --dry-run    # a repo's project-level skills
 skill-discovery --path ~/team-skills --source team-repo --dry-run
@@ -117,12 +108,9 @@ skill-discovery --path ~/team-skills --source team-repo --dry-run
 | `--scanner-backend` | `auto` (default), `heuristics`, `skillspector`, `none` |
 | `--loop <seconds>` | Continuous mode: rescan on this interval (minimum 60) and report only when the inventory changes. Without it, one-shot as always |
 | `--heartbeat <seconds>` | With `--loop`: report even without change once this long has passed since the last successful submission (default 86400, i.e. daily; 0 reports every pass) |
-| `--dry-run` | Print the report, list which roots were checked, contact no server |
+| `--dry-run` | Print the report, contact no server |
 | `--print-json` | Print the report before submitting |
 | `--url`, `--token` | Server base URL and bearer token (see environment below) |
-
-`--dry-run` prints the JSON report on stdout (pipe-friendly) and a
-human-readable list of checked vs found roots on stderr.
 
 ## Reporting to a governance server (fleet use)
 
@@ -161,8 +149,6 @@ report:
   legitimately need them.
 - Directory-walk errors are scrubbed of home paths and usernames before they
   are reported.
-- `--dry-run` needs no server, no token, no network. Use it to see exactly
-  what a report would contain before you deploy anything.
 
 Redaction is pattern-based and best-effort, not a guarantee. Review a
 `--dry-run` report from a representative machine before enabling
@@ -185,7 +171,9 @@ quiet machine sends one heartbeat a day, not one report per pass. A failed
 submission retries on the next pass, Ctrl-C or a supervisor stop exits
 cleanly, and state is in memory only, so after a restart it submits once and
 the server upserts. Run it as the console user, since the skill roots live in
-user homes.
+user homes. `--dry-run --loop` works too, and prints instead of submitting:
+each report is one complete JSON document, so stdout becomes a stream of
+newline-separated JSON documents in order.
 
 Service recipes:
 
@@ -218,20 +206,13 @@ Service recipes:
     /TR "skill-discovery --loop 900 --device-id %COMPUTERNAME% --user-id %USERNAME%"
   ```
 
-Prefer an external schedule? The one-shot command still works under any
-scheduler (a Jamf or Intune policy, cron
-`30 9 * * * skill-discovery --device-id "$(hostname)" --user-id "$USER"`, a
-daily `schtasks` trigger, a launchd `StartCalendarInterval`): run it daily per
-user session and the server's inventory stays current, since reports upsert
-by `device_id` plus skill identity. Either way, set
-`SKILL_DISCOVERY_SERVER_URL` (and token) from your management profile.
-
-Developers can always run it themselves with `--dry-run` to see their own
-inventory first. That transparency is deliberate, and `--dry-run --loop 900`
-works too: it prints the report whenever the inventory changes and notes
-quiet passes on stderr. In loop mode each printed report is one complete JSON
-document, and when several print over the life of the process, stdout is a
-stream of newline-separated JSON documents in order.
+Prefer an external schedule? The one-shot command works under any scheduler
+(Jamf or Intune policy, cron, a daily `schtasks` trigger, a launchd
+`StartCalendarInterval`): run it daily per user session and the server's
+inventory stays current, since reports upsert by `device_id` plus skill
+identity. Either way, set `SKILL_DISCOVERY_SERVER_URL` (and token) from your
+management profile. Developers can always run `--dry-run` themselves to see
+their own inventory; that transparency is deliberate.
 
 ### The server contract
 
@@ -273,21 +254,22 @@ Expected response: `{"report_id": ..., "accepted": n, "flagged": n,
 "blocked": n, "results": [...]}`. The accepted/flagged/blocked counts are the
 server's judgment, not the agent's.
 
-## Using this on a team?
-
-skill-discovery reports what exists; it renders no verdicts. If your team
-needs those reports to flow into per-tenant policy, drift detection, and a
-review workflow before anyone acts on them, that governance layer is what
-[Surenode](https://surenode.ai) builds on top of this agent: KLIN ingests the
-reports and gives security teams the fleet inventory and the decisions around
-it. Any server can implement the contract above; nothing here is tied to ours.
-
 ## What this tool is not
 
-Plainly: this is posture and transparency tooling. It gives you an inventory
-of what skills exist on your endpoints and surfaces findings worth a look. It
-does not certify skills and it does not claim to catch everything. That
-judgment belongs to you, or to the governance layer you report into.
+Observation, not judgment. skill-discovery inventories what exists and
+attaches findings. It does not certify skills, it does not claim detection
+completeness, and a report with zero findings means "nothing our local rules
+noticed", nothing more. That judgment belongs to you, or to the governance
+layer you report into.
+
+## Using this on a team?
+
+If your team needs these reports to flow into per-tenant policy, drift
+detection, and a review workflow before anyone acts on them, that governance
+layer is what [Surenode](https://surenode.ai) builds on top of this agent:
+KLIN ingests the reports and gives security teams the fleet inventory and the
+decisions around it. Any server can implement the contract above; nothing
+here is tied to ours.
 
 ## Development
 
