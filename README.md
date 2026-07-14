@@ -27,7 +27,8 @@ prompt injection aimed at the scanner itself), so "I probably know what's
 installed" stopped being a good enough answer.
 
 skill-discovery is the smallest useful response: a single command that walks
-the known skill folders on a machine and reports what is actually there. Run
+the known skill folders and instruction files on a machine and reports what
+is actually there. Run
 it yourself out of curiosity. Run it across a fleet on a schedule and your
 security team gets an inventory instead of a guess.
 
@@ -38,10 +39,10 @@ pip install .        # from a checkout; Python 3.9+, one dependency (PyYAML)
 skill-discovery --dry-run
 ```
 
-That checks every known agent's skill roots (see the
-[support matrix](#agent-support-matrix)) and prints a JSON inventory of what
-it found: names, descriptions, per-folder fingerprints, and local detection
-findings. `--dry-run` makes **zero network calls**. Nothing leaves your
+That checks every known agent's skill roots and instruction-file locations
+(see the [support matrix](#agent-support-matrix)) and prints a JSON inventory
+of what it found: names, descriptions, per-folder fingerprints, and local
+detection findings. `--dry-run` makes **zero network calls**. Nothing leaves your
 machine and no server is involved. Add `--project ~/work/myrepo` to include a
 repo's project-level skills, or `--path <dir>` for any other folder.
 
@@ -75,8 +76,8 @@ sanitized, and scanned exactly like a skill.
 
 | Agent | Skill roots (user, project) | Instruction files | Source |
 |---|---|---|---|
-| Claude Code (`claude`) | `~/.claude/skills`, `.claude/skills` | none documented | Anthropic docs |
-| OpenAI Codex CLI (`codex`) | `~/.agents/skills`, `.agents/skills` (shared Agent Skills convention) | none documented | [Codex skills](https://developers.openai.com/codex/skills) |
+| Claude Code (`claude`) | `~/.claude/skills`, `.claude/skills` | `CLAUDE.md` memory files exist but are not yet inventoried | Anthropic docs |
+| OpenAI Codex CLI (`codex`) | `~/.agents/skills`, `.agents/skills` (shared Agent Skills convention) | `AGENTS.md` exists but is not yet inventoried | [Codex skills](https://developers.openai.com/codex/skills) |
 | opencode (`opencode`) | `~/.config/opencode/skills`, `.opencode/skills` | none beyond skills | [opencode skills](https://opencode.ai/docs/skills/) |
 | Cursor (`cursor`) | `~/.cursor/skills`, `.cursor/skills` | `.cursor/rules/*.mdc` | [Cursor skills](https://cursor.com/docs/skills.md), [Cursor rules](https://cursor.com/docs/rules) |
 | Google Antigravity (`antigravity`) | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills`; project side uses the shared `.agents/skills` | no on-disk rules path documented by the vendor | [Antigravity skills codelab](https://codelabs.developers.google.com/getting-started-with-antigravity-skills) |
@@ -106,7 +107,7 @@ skill-discovery --path ~/team-skills --source team-repo --dry-run
 
 | Flag | Meaning |
 |---|---|
-| `--agent <key>` (repeatable) | Scan a registered agent's user roots (`claude`, `codex`, `opencode`, or `all`). Default when no location flags are given: `all` |
+| `--agent <key>` (repeatable) | Scan a registered agent's locations: `claude`, `codex`, `cursor`, `antigravity`, `windsurf`, `opencode`, `copilot`, `kiro`, or `all`. Default when no location flags are given: `all` |
 | `--project <dir>` (repeatable) | Scan project-level skill roots under a directory (scoped by `--agent` if given) |
 | `--path <dir>` (repeatable) | Any additional skill root; labeled with `--source` |
 | `--claude` / `--codex` | Deprecated aliases for `--agent claude` / `--agent codex` |
