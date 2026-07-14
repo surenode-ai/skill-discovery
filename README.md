@@ -1,46 +1,67 @@
 # skill-discovery
 
-Audit the skills your AI agents have installed — on your own machine, no
-server needed.
+[![ci](https://github.com/surenode-ai/skill-discovery/actions/workflows/ci.yml/badge.svg)](https://github.com/surenode-ai/skill-discovery/actions/workflows/ci.yml)
+
+Find out what skills your AI coding agents have installed. One command, runs
+on your own machine, no server or account needed.
 
 Coding agents like Claude Code, Codex CLI, and opencode act on **skills**:
 folders of persistent instructions (`SKILL.md` plus references and scripts)
 that change what the agent does in every future session. They accumulate from
-repos, marketplaces, and pasted snippets, and most people could not list what
-is installed right now, let alone what is inside it.
+repos, marketplaces, and pasted snippets, and they sit there quietly steering
+your agent long after you have forgotten where they came from.
+
+## Why I built skill-discovery
+
+Skills fix agent amnesia, and tools like
+[skill-extractor](https://github.com/surenode-ai/skill-extractor) make them
+cheap to create. That created the next problem: I could not tell you what was
+installed on my own laptop. A skill arrives with a cloned repo, an install
+script, a teammate's paste, and from then on it is a standing instruction your
+agent follows. Research such as NVIDIA's
+[SkillSpector](https://github.com/NVIDIA/skillspector) has documented real
+malicious-skill patterns (environment dumps, hidden Office and zip payloads,
+prompt injection aimed at the scanner itself), so "I probably know what's
+installed" stopped being a good enough answer.
+
+skill-discovery is the smallest useful response: a single command that walks
+the known skill folders on a machine and reports what is actually there. Run
+it yourself out of curiosity. Run it across a fleet on a schedule and your
+security team gets an inventory instead of a guess.
+
+## Quick start
 
 ```bash
 pip install .        # from a checkout; Python 3.9+, one dependency (PyYAML)
 skill-discovery --dry-run
 ```
 
-That one command checks every known agent's skill roots (see the
-[support matrix](#agent-support-matrix)), and prints a JSON inventory of what
-it found — names, descriptions, per-folder fingerprints, and local detection
-findings. `--dry-run` makes **zero network calls**: nothing leaves your
-machine, no server or account is involved. Add `--project ~/work/myrepo` to
-include a repo's project-level skills, or `--path <dir>` for any other folder.
+That checks every known agent's skill roots (see the
+[support matrix](#agent-support-matrix)) and prints a JSON inventory of what
+it found: names, descriptions, per-folder fingerprints, and local detection
+findings. `--dry-run` makes **zero network calls**. Nothing leaves your
+machine and no server is involved. Add `--project ~/work/myrepo` to include a
+repo's project-level skills, or `--path <dir>` for any other folder.
 
-What each skill gets:
+For each skill you get:
 
-- **Frontmatter parsing** — name and description from `SKILL.md`.
-- **Fingerprint** — order-independent SHA-256 over the folder contents,
+- **Frontmatter parsing**: name and description from `SKILL.md`.
+- **Fingerprint**: an order-independent SHA-256 over the folder contents,
   identical for the same skill on Windows, macOS, and Linux.
-- **Local detection** — built-in offline heuristic rules for documented
+- **Local detection**: built-in offline heuristic rules for documented
   malicious-skill patterns (environment dumps, hidden Office/zip payloads,
   bytecode smuggling, scanner-directed prompt injection, package-registry
-  tampering), plus [NVIDIA SkillSpector](https://github.com/NVIDIA/skillspector)
-  automatically when it is installed
-  (`uv tool install git+https://github.com/NVIDIA/skillspector.git`). The
-  report's `scanner` field always says which backend ran (`heuristics` vs
-  `skillspector+heuristics`).
-- **Sanitization findings** — secrets/PII that would be redacted before any
-  upload, and personal home-directory paths worth knowing about.
+  tampering). If [NVIDIA SkillSpector](https://github.com/NVIDIA/skillspector)
+  is installed (`uv tool install git+https://github.com/NVIDIA/skillspector.git`),
+  it runs too. The report's `scanner` field always says which backend actually
+  ran (`heuristics` vs `skillspector+heuristics`).
+- **Sanitization findings**: secrets and PII that would be redacted before any
+  upload, plus personal home-directory paths worth knowing about.
 
-This is **observation, not judgment**. The tool inventories what exists and
-attaches findings; it does not certify skills, does not claim detection
-completeness, and a report with zero findings means "nothing our local rules
-noticed", nothing more.
+Be clear about what this is: **observation, not judgment**. The tool
+inventories what exists and attaches findings. It does not certify skills, it
+does not claim detection completeness, and a report with zero findings means
+"nothing our local rules noticed", nothing more.
 
 ## Agent support matrix
 
@@ -53,7 +74,7 @@ noticed", nothing more.
 The registry lives in [`discovery/agents.py`](discovery/agents.py) and is the
 single most wanted community contribution: one small, documented entry adds
 support for another agent. Every path must be citable to the agent vendor's
-docs — see [CONTRIBUTING.md](CONTRIBUTING.md).
+docs. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## CLI reference
 
@@ -103,23 +124,25 @@ The default mode sends as little as possible:
 
 - **`metadata_only`** (default): names, descriptions, relative paths,
   fingerprints, and findings. No skill content leaves the machine.
-- **`full_skill`**: additionally uploads each skill folder for server-side
-  scanning — after local sanitization.
+- **`full_skill`**: additionally uploads each skill folder, after local
+  sanitization, for server-side scanning.
 
-Sanitization runs locally in both modes (its findings are part of the report):
+Sanitization runs locally in both modes, and its findings are part of the
+report:
 
 - Secrets and PII in skill markdown become `[redacted:...]` markers: private
   keys, JWTs, AWS/API keys, GitHub/Slack tokens, bearer tokens, URL-embedded
   passwords, SSNs, emails. Redaction happens **before** upload, so neither the
   value nor its location reaches the server.
 - Personal home-directory paths (`/Users/<name>/...`, `C:\Users\<name>\...`)
-  are flagged as findings but never rewritten — a bundled tool may need them.
+  are flagged as findings but never rewritten, because a bundled tool may
+  legitimately need them.
 - Directory-walk errors are scrubbed of home paths and usernames before they
   are reported.
-- `--dry-run` needs no server, no token, no network: use it to see exactly
+- `--dry-run` needs no server, no token, no network. Use it to see exactly
   what a report would contain before you deploy anything.
 
-Redaction is pattern-based and best-effort, not a guarantee; review a
+Redaction is pattern-based and best-effort, not a guarantee. Review a
 `--dry-run` report from a representative machine before enabling
 `full_skill` fleet-wide.
 
@@ -127,8 +150,8 @@ Redaction is pattern-based and best-effort, not a guarantee; review a
 
 `skill-discovery` is a single stateless command, so any scheduler works:
 run it daily per user session and the server's inventory stays current
-(reports upsert by `device_id` + skill identity). Run it as the console
-user — the skill roots live in user homes.
+(reports upsert by `device_id` plus skill identity). Run it as the console
+user, since the skill roots live in user homes.
 
 - **Jamf / Intune / any MDM**: ship a policy that runs
   `skill-discovery --device-id "$(hostname)" --user-id "$USER"` on a schedule,
@@ -145,7 +168,7 @@ user — the skill roots live in user homes.
 - **systemd (Linux)** or **cron**: a user-level timer unit, or
   `30 9 * * * skill-discovery --device-id "$(hostname)" --user-id "$USER"`.
 - **Ad hoc**: developers can always run it themselves with `--dry-run` to see
-  their own inventory first; that transparency is deliberate.
+  their own inventory first. That transparency is deliberate.
 
 ### The server contract
 
@@ -184,20 +207,24 @@ sketch:
 ```
 
 Expected response: `{"report_id": ..., "accepted": n, "flagged": n,
-"blocked": n, "results": [...]}` — the accepted/flagged/blocked counts are the
+"blocked": n, "results": [...]}`. The accepted/flagged/blocked counts are the
 server's judgment, not the agent's.
 
-Any server can implement this contract. KLIN (Surenode's governance product)
-is the layer this agent was extracted from: it ingests the reports,
-applies per-tenant policy to the findings, and gives security teams the fleet
-inventory, drift, and review workflow on top.
+## Using this on a team?
+
+skill-discovery reports what exists; it renders no verdicts. If your team
+needs those reports to flow into per-tenant policy, drift detection, and a
+review workflow before anyone acts on them, that governance layer is what
+[Surenode](https://surenode.ai) builds on top of this agent: KLIN ingests the
+reports and gives security teams the fleet inventory and the decisions around
+it. Any server can implement the contract above; nothing here is tied to ours.
 
 ## What this tool is not
 
 Plainly: this is posture and transparency tooling. It gives you an inventory
 of what skills exist on your endpoints and surfaces findings worth a look. It
-does not certify skills, and it renders no verdicts — that judgment belongs to
-you or to the governance layer you report into.
+does not certify skills and it does not claim to catch everything. That
+judgment belongs to you, or to the governance layer you report into.
 
 ## Development
 
@@ -212,6 +239,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign-off required) and
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). SkillSpector is a
-separate NVIDIA project, invoked as an externally installed CLI when present —
-it is not vendored or redistributed here.
+Apache 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). SkillSpector is a
+separate NVIDIA project, invoked as an externally installed CLI when present.
+It is not vendored or redistributed here.

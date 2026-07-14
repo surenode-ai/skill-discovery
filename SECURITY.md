@@ -15,7 +15,7 @@ This tool reads **local skill folders**, runs **local detection**, and sends an
 privacy-first: `metadata_only` reports carry no skill content; secrets and PII
 are pattern-redacted before any content upload; personal home paths are flagged,
 and error text is scrubbed of usernames; `--dry-run` makes no network calls at
-all. Skill folders are only ever read — nothing in a scanned folder is
+all. Skill folders are only ever read: nothing in a scanned folder is
 executed, and the optional SkillSpector backend runs against a sanitized temp
 copy with path-traversal-safe writes.
 

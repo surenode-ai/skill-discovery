@@ -12,7 +12,7 @@ deliberately:
 
 | Contribution | Reception |
 |---|---|
-| **New agent registry entries** (where another agent platform stores skills) | The most wanted contribution: one `AgentSpec` in `discovery/agents.py` plus a test. Every path must be citable to the agent vendor's documentation — link it in the entry's docstring; we do not merge guessed paths |
+| **New agent registry entries** (where another agent platform stores skills) | The most wanted contribution: one `AgentSpec` in `discovery/agents.py` plus a test. Every path must be citable to the agent vendor's documentation (link it in the entry's docstring); we do not merge guessed paths |
 | **New detection heuristics** (documented malicious-skill techniques) | Equally welcome. A rule + a realistic test sample, never touches the report pipeline |
 | **New redaction patterns** (secret/token formats the sanitizer should catch) | Welcome: tiny diffs, direct privacy value, must come with a test |
 | **Bug fixes** | Always |
