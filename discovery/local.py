@@ -16,7 +16,7 @@ from pathlib import Path
 from discovery.sanitize import SanitizationReport, sanitize_folder
 from discovery.scanning import Finding, ScannerError, Severity, configure_scanner, get_scanner
 from discovery.skillmd import SkillParseError, parse_skill_md
-from discovery.walker import _discover
+from discovery.walker import MAX_SKILLS, _discover, _read_text
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,10 @@ class DiscoveryLocation:
     root: Path
     source: str
     location_kind: str
+    # When set, this location inventories standalone instruction/rule files
+    # matching the glob under root (e.g. ".cursor/rules/*.mdc") instead of
+    # walking root for SKILL.md folders.
+    pattern: str | None = None
 
 
 def default_locations(home: Path | None = None) -> list[DiscoveryLocation]:
@@ -89,6 +93,30 @@ def _sanitization_findings(report: SanitizationReport) -> list[Finding]:
     return findings
 
 
+_HEADING_RE_TEXT = r"^\s*#+\s*(.+)$"
+
+
+def _rule_description(content: str) -> str:
+    """Cheap one-line description for a standalone instruction file: the
+    frontmatter ``description:`` if present, else the first heading, else the
+    first non-empty line."""
+    import re
+
+    body = content
+    fm_match = re.match(r"^\s*---\s*\n(.*?)\n---\s*\n?(.*)$", content, re.DOTALL)
+    if fm_match:
+        desc = re.search(r"^description:\s*(.+)$", fm_match.group(1), re.MULTILINE)
+        if desc:
+            return desc.group(1).strip().strip("\"'")[:255]
+        body = fm_match.group(2)
+    for line in body.splitlines():
+        line = line.strip()
+        if line:
+            heading = re.match(_HEADING_RE_TEXT, line)
+            return (heading.group(1) if heading else line).strip()[:255]
+    return ""
+
+
 def _privacy_text(text: str, home: Path | None = None) -> str:
     """Redact common personal path shapes before reporting discovery errors."""
     import re
@@ -126,9 +154,43 @@ def build_discovery_report(
     user_id = user_id or os.environ.get("USER") or os.environ.get("USERNAME")
     items: list[dict] = []
 
+    include_candidate = upload_mode in {"full_skill", "full_skill_after_local_scan"}
+
     for loc in locations or default_locations():
         root = loc.root.expanduser()
         if not root.is_dir():
+            continue
+        if loc.pattern:
+            # Standalone instruction/rule files (Cursor rules, Kiro steering,
+            # Copilot instructions, ...): one report item per matching file,
+            # fingerprinted, sanitized, and scanned exactly like a skill folder.
+            for match in sorted(root.glob(loc.pattern))[:MAX_SKILLS]:
+                if not match.is_file():
+                    continue
+                content = _read_text(str(match))
+                if content is None:
+                    continue  # non-UTF-8 or oversized; rule files are text
+                rel = _posix(str(match.relative_to(root)))
+                files = {rel: content}
+                try:
+                    findings = get_scanner().scan(files)
+                except ScannerError as exc:
+                    findings = [_scanner_error_finding(str(exc))]
+                sanitized, sanitization = sanitize_folder(files)
+                findings = findings + _sanitization_findings(sanitization)
+                items.append({
+                    "external_id": f"{loc.source}:{loc.location_kind}:{rel}",
+                    "source": loc.source,
+                    "location_kind": loc.location_kind,
+                    "relative_path": rel,
+                    "name": match.stem or match.name,
+                    "description": _rule_description(content),
+                    "fingerprint": _fingerprint(files),
+                    "scanner": scanner_name,
+                    "scanner_version": agent_version,
+                    "local_findings": [_finding_json(f) for f in findings],
+                    **({"candidate": sanitized} if include_candidate else {}),
+                })
             continue
         skills, errors = _discover(str(root), str(root))
         for skill in skills:
@@ -148,7 +210,6 @@ def build_discovery_report(
                     description = parsed.description
                 except SkillParseError:
                     pass
-            include_candidate = upload_mode in {"full_skill", "full_skill_after_local_scan"}
             rel_dir = _posix(skill.rel_dir)
             items.append({
                 "external_id": f"{loc.source}:{loc.location_kind}:{rel_dir}",
@@ -188,8 +249,8 @@ def build_discovery_report(
         "meta": {
             "scanner": scanner_name,
             "locations": [
-                {"source": l.source, "location_kind": l.location_kind}
-                for l in (locations or default_locations())
+                {"source": loc.source, "location_kind": loc.location_kind}
+                for loc in (locations or default_locations())
             ],
         },
     }

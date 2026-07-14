@@ -11,9 +11,9 @@ server. Two kinds of finding:
   e.g. a tool stored under ``/Users/<name>/...``. A tool may legitimately need
   that path, so we surface it to the operator rather than silently rewriting it.
 
-Only Markdown files (SKILL.md and references/*.md) are scanned. Script and asset
-contents are out of scope: what happens inside a bundled tool is the tool's
-concern, not ours.
+Only Markdown files are scanned (SKILL.md, references/*.md, and markdown rule
+files such as Cursor's *.mdc). Script and asset contents are out of scope: what
+happens inside a bundled tool is the tool's concern, not ours.
 """
 
 from __future__ import annotations
@@ -134,7 +134,7 @@ def sanitize_folder(folder: dict[str, str]) -> tuple[dict[str, str], Sanitizatio
     seen_paths: set[tuple[str, str]] = set()
 
     for path, content in folder.items():
-        if not path.endswith(".md"):
+        if not path.endswith((".md", ".mdc")):
             continue  # tool/script/asset internals are out of scope
         new = content
         for kind, rx, repl in _REDACTORS:

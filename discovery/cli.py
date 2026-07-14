@@ -145,14 +145,40 @@ def _selected_agent_keys(parser: argparse.ArgumentParser, args) -> list[str]:
     return keys
 
 
+def _dedupe_locations(locations: list[DiscoveryLocation]) -> list[DiscoveryLocation]:
+    """Drop locations whose (root, pattern) another agent already claimed.
+    Several agents document the same shared roots (e.g. .agents/skills);
+    scanning a root once keeps items from being double counted. The first
+    agent in registry order wins the attribution."""
+    seen: set = set()
+    out: list[DiscoveryLocation] = []
+    for loc in locations:
+        key = (os.path.normpath(str(loc.root.expanduser())), loc.pattern)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(loc)
+    return out
+
+
 def _print_root_summary(locations: list[DiscoveryLocation]) -> None:
-    """Human summary of which roots were checked vs found. Goes to stderr so
-    stdout stays pure JSON for piping."""
-    print("Checked skill roots:", file=sys.stderr)
+    """Human summary of which locations were checked vs found, distinguishing
+    SKILL.md skill roots from standalone instruction/rule file globs. Goes to
+    stderr so stdout stays pure JSON for piping."""
+    print("Checked locations:", file=sys.stderr)
     for loc in locations:
         root = loc.root.expanduser()
-        status = "found" if root.is_dir() else "not present"
-        print(f"  [{status:>11}] {loc.source}:{loc.location_kind}  {root}", file=sys.stderr)
+        if loc.pattern:
+            found = root.is_dir() and any(p.is_file() for p in root.glob(loc.pattern))
+            status = "found" if found else "not present"
+            what = f"{root}{os.sep}{loc.pattern}"
+            label = "rules "
+        else:
+            status = "found" if root.is_dir() else "not present"
+            what = str(root)
+            label = "skills"
+        print(f"  [{status:>11}] {label} {loc.source}:{loc.location_kind}  {what}",
+              file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -170,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         locations.extend(project_locations(proj_keys, Path(raw).expanduser()))
     for raw in args.path or []:
         locations.append(DiscoveryLocation(Path(raw).expanduser(), args.source, "custom"))
+    locations = _dedupe_locations(locations)
 
     if args.dry_run:
         _print_root_summary(locations)

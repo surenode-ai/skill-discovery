@@ -5,9 +5,11 @@
 Find out what skills your AI coding agents have installed. One command, runs
 on your own machine, no server or account needed.
 
-Coding agents like Claude Code, Codex CLI, and opencode act on **skills**:
-folders of persistent instructions (`SKILL.md` plus references and scripts)
-that change what the agent does in every future session. They accumulate from
+Coding agents like Claude Code, Codex, Cursor, Copilot, Windsurf, Kiro,
+Antigravity, and opencode act on **skills** (folders of persistent
+instructions: `SKILL.md` plus references and scripts) and on standing
+instruction files (rules, steering, custom instructions). Both change what
+the agent does in every future session. They accumulate from
 repos, marketplaces, and pasted snippets, and they sit there quietly steering
 your agent long after you have forgotten where they came from.
 
@@ -65,11 +67,28 @@ does not claim detection completeness, and a report with zero findings means
 
 ## Agent support matrix
 
-| Agent | User-level root | Project-level root |
-|---|---|---|
-| Claude Code (`claude`) | `~/.claude/skills` | `.claude/skills` |
-| OpenAI Codex CLI (`codex`, [Agent Skills convention](https://developers.openai.com/codex/skills)) | `~/.agents/skills` | `.agents/skills` |
-| [opencode](https://opencode.ai/docs/skills/) (`opencode`) | `~/.config/opencode/skills` | `.opencode/skills` |
+Two kinds of location are inventoried. Skill roots hold SKILL.md folders and
+are walked like any skill directory. Instruction files (rules, steering,
+custom instructions) are standalone files an agent always follows; each one
+becomes its own report item with a `..._rules` location kind, fingerprinted,
+sanitized, and scanned exactly like a skill.
+
+| Agent | Skill roots (user, project) | Instruction files | Source |
+|---|---|---|---|
+| Claude Code (`claude`) | `~/.claude/skills`, `.claude/skills` | none documented | Anthropic docs |
+| OpenAI Codex CLI (`codex`) | `~/.agents/skills`, `.agents/skills` (shared Agent Skills convention) | none documented | [Codex skills](https://developers.openai.com/codex/skills) |
+| opencode (`opencode`) | `~/.config/opencode/skills`, `.opencode/skills` | none beyond skills | [opencode skills](https://opencode.ai/docs/skills/) |
+| Cursor (`cursor`) | `~/.cursor/skills`, `.cursor/skills` | `.cursor/rules/*.mdc` | [Cursor skills](https://cursor.com/docs/skills.md), [Cursor rules](https://cursor.com/docs/rules) |
+| Google Antigravity (`antigravity`) | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills`; project side uses the shared `.agents/skills` | no on-disk rules path documented by the vendor | [Antigravity skills codelab](https://codelabs.developers.google.com/getting-started-with-antigravity-skills) |
+| Windsurf (`windsurf`) | `~/.codeium/windsurf/skills`, `.windsurf/skills` | `.devin/rules/*.md`, legacy `.windsurf/rules/*.md`, global `~/.codeium/windsurf/memories/global_rules.md` | [Windsurf skills](https://docs.windsurf.com/windsurf/cascade/skills), [Windsurf rules](https://docs.windsurf.com/windsurf/cascade/memories) |
+| GitHub Copilot (`copilot`) | `~/.copilot/skills`, `.github/skills` (also reads the shared and Claude locations) | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md` | [Copilot skills](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills), [Copilot instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot) |
+| Kiro, AWS (`kiro`) | `~/.kiro/skills`, `.kiro/skills` | steering: `~/.kiro/steering/*.md`, `.kiro/steering/*.md` | [Kiro skills](https://kiro.dev/docs/skills/), [Kiro steering](https://kiro.dev/docs/steering/) |
+
+Several agents also read the shared `.agents/skills` and Claude-compatible
+locations. Those are listed once, under the entry that owns the convention,
+and any root two agents share is scanned only once, so nothing is double
+counted. The dry-run summary on stderr labels every location as `skills` or
+`rules` so you can tell which kind produced each item.
 
 The registry lives in [`discovery/agents.py`](discovery/agents.py) and is the
 single most wanted community contribution: one small, documented entry adds
