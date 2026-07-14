@@ -26,6 +26,7 @@ from pathlib import Path
 from discovery import __version__
 from discovery.agents import AGENTS, agent_keys, project_locations, user_locations
 from discovery.local import DiscoveryLocation, build_discovery_report
+from discovery.loop import DEFAULT_HEARTBEAT_SECONDS, MIN_LOOP_SECONDS, run_loop
 
 DEFAULT_URL = "http://127.0.0.1:8000"
 
@@ -112,6 +113,16 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Print the report but do not submit it (needs no server).")
     parser.add_argument("--print-json", action="store_true",
                         help="Print the report JSON before submitting.")
+    parser.add_argument("--loop", type=float, metavar="SECONDS", default=None,
+                        help=f"Continuous mode: rescan every SECONDS (minimum "
+                             f"{MIN_LOOP_SECONDS:.0f}) and report only when the "
+                             f"inventory changes. Run it under any supervisor. "
+                             f"Without --loop the command is one-shot, as before.")
+    parser.add_argument("--heartbeat", type=float, metavar="SECONDS",
+                        default=DEFAULT_HEARTBEAT_SECONDS,
+                        help="With --loop: force a report even without change once "
+                             "this much time has passed since the last successful "
+                             "submission (default 86400 = daily). 0 reports every pass.")
     return parser
 
 
@@ -163,15 +174,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         _print_root_summary(locations)
 
-    report = build_discovery_report(
-        locations=locations or None,
-        upload_mode=args.upload_mode,
-        device_id=args.device_id,
-        device_name=args.device_name,
-        user_id=args.user_id,
-        agent_version=args.agent_version,
-        scanner_backend=args.scanner_backend,
-    )
+    def _build() -> dict:
+        return build_discovery_report(
+            locations=locations or None,
+            upload_mode=args.upload_mode,
+            device_id=args.device_id,
+            device_name=args.device_name,
+            user_id=args.user_id,
+            agent_version=args.agent_version,
+            scanner_backend=args.scanner_backend,
+        )
+
+    if args.loop is not None:
+        if args.loop < MIN_LOOP_SECONDS:
+            parser.error(f"--loop must be at least {MIN_LOOP_SECONDS:.0f} seconds")
+        if args.heartbeat < 0:
+            parser.error("--heartbeat must be 0 or positive")
+        url = _resolve_url(args)
+        token = _resolve_token(args)
+
+        def _submit(report: dict) -> dict:
+            return _post(f"{url.rstrip('/')}/discovery/reports", report, token)
+
+        return run_loop(
+            _build, _submit,
+            interval=args.loop,
+            heartbeat=args.heartbeat,
+            dry_run=args.dry_run,
+            print_json=args.print_json,
+        )
+
+    report = _build()
     if args.print_json or args.dry_run:
         print(json.dumps(report, indent=2))
     if args.dry_run:

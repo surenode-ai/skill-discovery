@@ -95,6 +95,8 @@ skill-discovery --path ~/team-skills --source team-repo --dry-run
 | `--device-id`, `--device-name`, `--user-id` | Attribution for the fleet view (default: hostname / `$USER`/`$USERNAME`) |
 | `--upload-mode` | `metadata_only` (default) or `full_skill` |
 | `--scanner-backend` | `auto` (default), `heuristics`, `skillspector`, `none` |
+| `--loop <seconds>` | Continuous mode: rescan on this interval (minimum 60) and report only when the inventory changes. Without it, one-shot as always |
+| `--heartbeat <seconds>` | With `--loop`: report even without change once this long has passed since the last successful submission (default 86400, i.e. daily; 0 reports every pass) |
 | `--dry-run` | Print the report, list which roots were checked, contact no server |
 | `--print-json` | Print the report before submitting |
 | `--url`, `--token` | Server base URL and bearer token (see environment below) |
@@ -146,29 +148,70 @@ Redaction is pattern-based and best-effort, not a guarantee. Review a
 `--dry-run` report from a representative machine before enabling
 `full_skill` fleet-wide.
 
-### Deploying across a fleet (MDM / scheduled)
+### Deploying across a fleet
 
-`skill-discovery` is a single stateless command, so any scheduler works:
-run it daily per user session and the server's inventory stays current
-(reports upsert by `device_id` plus skill identity). Run it as the console
-user, since the skill roots live in user homes.
+The simplest deployment is continuous mode: run it as a service and it
+reports when the inventory changes, with a daily heartbeat so the server's
+last-seen stays current.
 
-- **Jamf / Intune / any MDM**: ship a policy that runs
-  `skill-discovery --device-id "$(hostname)" --user-id "$USER"` on a schedule,
-  with `SKILL_DISCOVERY_SERVER_URL` (and token) set from your management
-  profile.
+```bash
+skill-discovery --loop 900 --device-id "$(hostname)" --user-id "$USER"
+```
+
+Each pass rescans locally, digests the inventory (skill identities,
+fingerprints, findings), and submits only when that digest differs from the
+last successful submission. The traffic property matters at fleet scale: a
+quiet machine sends one heartbeat a day, not one report per pass. A failed
+submission retries on the next pass, Ctrl-C or a supervisor stop exits
+cleanly, and state is in memory only, so after a restart it submits once and
+the server upserts. Run it as the console user, since the skill roots live in
+user homes.
+
+Service recipes:
+
+- **launchd (macOS)**: a `LaunchAgent` with `KeepAlive`:
+
+  ```xml
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/skill-discovery</string>
+    <string>--loop</string><string>900</string>
+  </array>
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  ```
+
+- **systemd (Linux)**: a user service, `~/.config/systemd/user/skill-discovery.service`:
+
+  ```ini
+  [Service]
+  ExecStart=%h/.local/bin/skill-discovery --loop 900
+  Restart=on-failure
+  [Install]
+  WantedBy=default.target
+  ```
+
 - **Windows (Task Scheduler)**:
 
   ```bat
-  schtasks /Create /SC DAILY /ST 09:30 /TN "skill-discovery" ^
-    /TR "skill-discovery --device-id %COMPUTERNAME% --user-id %USERNAME%"
+  schtasks /Create /SC ONSTART /TN "skill-discovery" ^
+    /TR "skill-discovery --loop 900 --device-id %COMPUTERNAME% --user-id %USERNAME%"
   ```
 
-- **launchd (macOS)**: a `LaunchAgent` with a `StartCalendarInterval`.
-- **systemd (Linux)** or **cron**: a user-level timer unit, or
-  `30 9 * * * skill-discovery --device-id "$(hostname)" --user-id "$USER"`.
-- **Ad hoc**: developers can always run it themselves with `--dry-run` to see
-  their own inventory first. That transparency is deliberate.
+Prefer an external schedule? The one-shot command still works under any
+scheduler (a Jamf or Intune policy, cron
+`30 9 * * * skill-discovery --device-id "$(hostname)" --user-id "$USER"`, a
+daily `schtasks` trigger, a launchd `StartCalendarInterval`): run it daily per
+user session and the server's inventory stays current, since reports upsert
+by `device_id` plus skill identity. Either way, set
+`SKILL_DISCOVERY_SERVER_URL` (and token) from your management profile.
+
+Developers can always run it themselves with `--dry-run` to see their own
+inventory first. That transparency is deliberate, and `--dry-run --loop 900`
+works too: it prints the report whenever the inventory changes and notes
+quiet passes on stderr. In loop mode each printed report is one complete JSON
+document, and when several print over the life of the process, stdout is a
+stream of newline-separated JSON documents in order.
 
 ### The server contract
 
