@@ -34,10 +34,16 @@ def default_locations(home: Path | None = None) -> list[DiscoveryLocation]:
     ]
 
 
+def _posix(path: str) -> str:
+    """Normalize a relative path to forward slashes so report identity and
+    fingerprints are identical across Windows, macOS, and Linux."""
+    return path.replace("\\", "/")
+
+
 def _fingerprint(files: dict[str, str]) -> str:
     h = hashlib.sha256()
-    for path in sorted(files):
-        h.update(path.encode())
+    for path in sorted(files, key=_posix):
+        h.update(_posix(path).encode())
         h.update(b"\0")
         h.update(files[path].encode())
         h.update(b"\0")
@@ -143,11 +149,12 @@ def build_discovery_report(
                 except SkillParseError:
                     pass
             include_candidate = upload_mode in {"full_skill", "full_skill_after_local_scan"}
+            rel_dir = _posix(skill.rel_dir)
             items.append({
-                "external_id": f"{loc.source}:{loc.location_kind}:{skill.rel_dir}",
+                "external_id": f"{loc.source}:{loc.location_kind}:{rel_dir}",
                 "source": loc.source,
                 "location_kind": loc.location_kind,
-                "relative_path": f"{skill.rel_dir}/SKILL.md" if skill.rel_dir else "SKILL.md",
+                "relative_path": f"{rel_dir}/SKILL.md" if rel_dir else "SKILL.md",
                 "name": name or "unknown",
                 "description": description or "",
                 "fingerprint": _fingerprint(skill.files),

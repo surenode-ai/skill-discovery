@@ -1,66 +1,91 @@
 # skill-discovery
 
-An endpoint inventory agent for AI agent skills.
+Audit the skills your AI agents have installed — on your own machine, no
+server needed.
 
-Coding agents like Claude Code and Codex CLI act on **skills**: folders of
-persistent instructions (`SKILL.md` plus references and scripts) that change
-what the agent does in every future session. Developers install them from
-repos, marketplaces, and chat messages — and today most organizations have no
-idea what skills are running on their machines.
+Coding agents like Claude Code, Codex CLI, and opencode act on **skills**:
+folders of persistent instructions (`SKILL.md` plus references and scripts)
+that change what the agent does in every future session. They accumulate from
+repos, marketplaces, and pasted snippets, and most people could not list what
+is installed right now, let alone what is inside it.
 
-`skill-discovery` gives you that visibility. It runs on the endpoint, scans the
-standard skill roots (`~/.claude/skills`, `~/.agents/skills`) and any paths you
-add, and produces a JSON inventory report:
+```bash
+pip install .        # from a checkout; Python 3.9+, one dependency (PyYAML)
+skill-discovery --dry-run
+```
 
-- **Parses** each `SKILL.md`'s frontmatter (name, description).
-- **Fingerprints** each skill folder (order-independent SHA-256 over contents),
-  so the same skill is recognizable across your fleet.
-- **Runs local detection**: built-in offline heuristic rules for documented
+That one command checks every known agent's skill roots (see the
+[support matrix](#agent-support-matrix)), and prints a JSON inventory of what
+it found — names, descriptions, per-folder fingerprints, and local detection
+findings. `--dry-run` makes **zero network calls**: nothing leaves your
+machine, no server or account is involved. Add `--project ~/work/myrepo` to
+include a repo's project-level skills, or `--path <dir>` for any other folder.
+
+What each skill gets:
+
+- **Frontmatter parsing** — name and description from `SKILL.md`.
+- **Fingerprint** — order-independent SHA-256 over the folder contents,
+  identical for the same skill on Windows, macOS, and Linux.
+- **Local detection** — built-in offline heuristic rules for documented
   malicious-skill patterns (environment dumps, hidden Office/zip payloads,
   bytecode smuggling, scanner-directed prompt injection, package-registry
   tampering), plus [NVIDIA SkillSpector](https://github.com/NVIDIA/skillspector)
-  when it is installed.
-- **Sanitizes before anything leaves the machine**: secrets and PII are
-  redacted, personal home-directory paths are flagged, error text is scrubbed
-  of user paths.
-- **Reports**: prints the JSON locally (`--dry-run` / `--print-json`) or POSTs
-  it to a governance server implementing the open `POST /discovery/reports`
-  contract.
+  automatically when it is installed
+  (`uv tool install git+https://github.com/NVIDIA/skillspector.git`). The
+  report's `scanner` field always says which backend ran (`heuristics` vs
+  `skillspector+heuristics`).
+- **Sanitization findings** — secrets/PII that would be redacted before any
+  upload, and personal home-directory paths worth knowing about.
 
 This is **observation, not judgment**. The tool inventories what exists and
-attaches findings; deciding what to allow, review, or block is the job of the
-governance layer that ingests the reports. It does not claim to find
-everything, and a clean report is not a verdict about a skill.
+attaches findings; it does not certify skills, does not claim detection
+completeness, and a report with zero findings means "nothing our local rules
+noticed", nothing more.
 
-## Install
+## Agent support matrix
 
-```bash
-pip install .            # from a checkout; publishes a `skill-discovery` CLI
-```
+| Agent | User-level root | Project-level root |
+|---|---|---|
+| Claude Code (`claude`) | `~/.claude/skills` | `.claude/skills` |
+| OpenAI Codex CLI (`codex`, [Agent Skills convention](https://developers.openai.com/codex/skills)) | `~/.agents/skills` | `.agents/skills` |
+| [opencode](https://opencode.ai/docs/skills/) (`opencode`) | `~/.config/opencode/skills` | `.opencode/skills` |
 
-Python 3.9+. One runtime dependency (PyYAML, for SKILL.md frontmatter).
+The registry lives in [`discovery/agents.py`](discovery/agents.py) and is the
+single most wanted community contribution: one small, documented entry adds
+support for another agent. Every path must be citable to the agent vendor's
+docs — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Optional deeper detection — install SkillSpector on the endpoint and
-`skill-discovery` picks it up automatically:
-
-```bash
-uv tool install git+https://github.com/NVIDIA/skillspector.git
-```
-
-Without it, the built-in heuristic rules still run, and the report's `scanner`
-field says which backend produced the findings (`heuristics` vs
-`skillspector+heuristics`), so the server always knows what kind of scan it is
-looking at.
-
-## Quickstart
-
-Inventory your own machine, nothing leaves it:
+## CLI reference
 
 ```bash
-skill-discovery --claude --dry-run --print-json
+skill-discovery --dry-run                          # all agents, print, no network
+skill-discovery --agent claude --dry-run           # one agent only
+skill-discovery --project ~/work/repo --dry-run    # a repo's project-level skills
+skill-discovery --path ~/team-skills --source team-repo --dry-run
 ```
 
-Scan everything (Claude + Codex roots) and report to a server:
+| Flag | Meaning |
+|---|---|
+| `--agent <key>` (repeatable) | Scan a registered agent's user roots (`claude`, `codex`, `opencode`, or `all`). Default when no location flags are given: `all` |
+| `--project <dir>` (repeatable) | Scan project-level skill roots under a directory (scoped by `--agent` if given) |
+| `--path <dir>` (repeatable) | Any additional skill root; labeled with `--source` |
+| `--claude` / `--codex` | Deprecated aliases for `--agent claude` / `--agent codex` |
+| `--home <dir>` | Home directory to resolve user skill roots under |
+| `--device-id`, `--device-name`, `--user-id` | Attribution for the fleet view (default: hostname / `$USER`/`$USERNAME`) |
+| `--upload-mode` | `metadata_only` (default) or `full_skill` |
+| `--scanner-backend` | `auto` (default), `heuristics`, `skillspector`, `none` |
+| `--dry-run` | Print the report, list which roots were checked, contact no server |
+| `--print-json` | Print the report before submitting |
+| `--url`, `--token` | Server base URL and bearer token (see environment below) |
+
+`--dry-run` prints the JSON report on stdout (pipe-friendly) and a
+human-readable list of checked vs found roots on stderr.
+
+## Reporting to a governance server (fleet use)
+
+The same command, pointed at a server implementing the open
+`POST /discovery/reports` contract, turns local inventory into fleet
+visibility:
 
 ```bash
 export SKILL_DISCOVERY_SERVER_URL=https://governance.example.com
@@ -68,31 +93,11 @@ export SKILL_DISCOVERY_TOKEN=...        # if the server requires auth
 skill-discovery --device-id "$(hostname)" --user-id "$USER"
 ```
 
-Add arbitrary roots (a repo checkout, a shared tools directory):
-
-```bash
-skill-discovery --path ~/work/team-skills --source team-repo --dry-run --print-json
-```
-
-### Flags
-
-| Flag | Meaning |
-|---|---|
-| `--claude` / `--codex` | Scan `~/.claude/skills` / `~/.agents/skills` (both by default when no root flags are given) |
-| `--path <dir>` (repeatable) | Additional skill root; labeled with `--source` |
-| `--home <dir>` | Home directory to resolve the user skill roots under |
-| `--device-id`, `--device-name`, `--user-id` | Attribution for the fleet view (default: hostname / `$USER`) |
-| `--upload-mode` | `metadata_only` (default) or `full_skill` |
-| `--scanner-backend` | `auto` (default), `heuristics`, `skillspector`, `none` |
-| `--dry-run` | Print the report; contact no server |
-| `--print-json` | Print the report before submitting |
-| `--url`, `--token` | Server base URL and bearer token (see environment below) |
-
 Environment: `SKILL_DISCOVERY_SERVER_URL` / `SKILL_DISCOVERY_TOKEN`, with
 `KILN_SERVER_URL` / `KILN_API_TOKEN` honored as fallbacks when reporting to a
 KLIN server.
 
-## Upload modes and the privacy story
+### Upload modes and the privacy story
 
 The default mode sends as little as possible:
 
@@ -107,8 +112,8 @@ Sanitization runs locally in both modes (its findings are part of the report):
   keys, JWTs, AWS/API keys, GitHub/Slack tokens, bearer tokens, URL-embedded
   passwords, SSNs, emails. Redaction happens **before** upload, so neither the
   value nor its location reaches the server.
-- Personal home-directory paths (`/Users/<name>/...`) are flagged as findings
-  but never rewritten — a bundled tool may need them.
+- Personal home-directory paths (`/Users/<name>/...`, `C:\Users\<name>\...`)
+  are flagged as findings but never rewritten — a bundled tool may need them.
 - Directory-walk errors are scrubbed of home paths and usernames before they
   are reported.
 - `--dry-run` needs no server, no token, no network: use it to see exactly
@@ -118,25 +123,35 @@ Redaction is pattern-based and best-effort, not a guarantee; review a
 `--dry-run` report from a representative machine before enabling
 `full_skill` fleet-wide.
 
-## Deploying across a fleet (MDM / scheduled)
+### Deploying across a fleet (MDM / scheduled)
 
 `skill-discovery` is a single stateless command, so any scheduler works:
 run it daily per user session and the server's inventory stays current
-(reports upsert by `device_id` + skill identity).
+(reports upsert by `device_id` + skill identity). Run it as the console
+user — the skill roots live in user homes.
 
 - **Jamf / Intune / any MDM**: ship a policy that runs
   `skill-discovery --device-id "$(hostname)" --user-id "$USER"` on a schedule,
   with `SKILL_DISCOVERY_SERVER_URL` (and token) set from your management
-  profile. Run it as the console user — the skill roots live in user homes.
+  profile.
+- **Windows (Task Scheduler)**:
+
+  ```bat
+  schtasks /Create /SC DAILY /ST 09:30 /TN "skill-discovery" ^
+    /TR "skill-discovery --device-id %COMPUTERNAME% --user-id %USERNAME%"
+  ```
+
 - **launchd (macOS)**: a `LaunchAgent` with a `StartCalendarInterval`.
-- **systemd (Linux)**: a user-level timer unit.
+- **systemd (Linux)** or **cron**: a user-level timer unit, or
+  `30 9 * * * skill-discovery --device-id "$(hostname)" --user-id "$USER"`.
 - **Ad hoc**: developers can always run it themselves with `--dry-run` to see
   their own inventory first; that transparency is deliberate.
 
-## The server contract
+### The server contract
 
 The agent POSTs one JSON document to `POST /discovery/reports` (bearer auth
-optional). Payload sketch:
+optional). All paths in the payload use forward slashes on every OS. Payload
+sketch:
 
 ```jsonc
 {
@@ -148,8 +163,8 @@ optional). Payload sketch:
   "items": [
     {
       "external_id": "claude:user_claude:deploy",   // source:location:rel_dir
-      "source": "claude",              // claude | codex | <--source label>
-      "location_kind": "user_claude",  // privacy-preserving location bucket
+      "source": "claude",              // registry key, or the --source label
+      "location_kind": "user_claude",  // privacy-preserving bucket: user_* | project_* | custom
       "relative_path": "deploy/SKILL.md",
       "name": "deploy",
       "description": "Roll out with checks.",
@@ -181,8 +196,8 @@ inventory, drift, and review workflow on top.
 
 Plainly: this is posture and transparency tooling. It gives you an inventory
 of what skills exist on your endpoints and surfaces findings worth a look. It
-does not certify skills, it does not claim detection completeness, and a report
-with zero findings means "nothing our local rules noticed", nothing more.
+does not certify skills, and it renders no verdicts — that judgment belongs to
+you or to the governance layer you report into.
 
 ## Development
 
@@ -191,6 +206,7 @@ python3 -m venv .venv && .venv/bin/pip install -e . pytest
 .venv/bin/python -m pytest tests/
 ```
 
+CI runs the suite on Python 3.9 and 3.12 across Linux, macOS, and Windows.
 See [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign-off required) and
 [SECURITY.md](SECURITY.md).
 

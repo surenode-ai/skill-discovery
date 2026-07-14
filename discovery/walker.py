@@ -46,7 +46,9 @@ class DiscoveredSkill:
 
 
 def _repo_label(location: str) -> str:
-    base = location.rstrip("/").split("/")[-1]
+    # Normalize Windows separators so the label is the directory basename on
+    # every OS, never a full native path.
+    base = location.replace("\\", "/").rstrip("/").split("/")[-1]
     return base[:-4] if base.endswith(".git") else base or "repo"
 
 

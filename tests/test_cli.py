@@ -73,5 +73,5 @@ def test_cli_defaults_to_user_roots_when_no_flags(tmp_path, capsys, monkeypatch)
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     kinds = {loc["location_kind"] for loc in out["meta"]["locations"]}
-    assert kinds == {"user_codex", "user_claude"}
+    assert {"user_codex", "user_claude"} <= kinds  # all registered agents, incl. these two
     assert out["items"][0]["external_id"] == "claude:user_claude:notes"

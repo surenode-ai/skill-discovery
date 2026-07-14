@@ -1,7 +1,8 @@
 """Command-line entry point: the `skill-discovery` endpoint agent.
 
-Scans local skill roots (``~/.claude/skills``, ``~/.agents/skills``, and any
-``--path`` roots) for SKILL.md skill folders, runs local detection, sanitizes
+Scans local skill roots (every registered agent's user roots by default — see
+``discovery.agents`` — plus ``--project`` and ``--path`` roots) for SKILL.md
+skill folders, runs local detection, sanitizes
 content before anything leaves the machine, fingerprints each skill, and either
 prints the JSON inventory report locally (``--dry-run`` / ``--print-json``) or
 POSTs it to a governance server implementing ``POST /discovery/reports``.
@@ -23,6 +24,7 @@ import urllib.request
 from pathlib import Path
 
 from discovery import __version__
+from discovery.agents import AGENTS, agent_keys, project_locations, user_locations
 from discovery.local import DiscoveryLocation, build_discovery_report
 
 DEFAULT_URL = "http://127.0.0.1:8000"
@@ -79,8 +81,18 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Bearer token for the server (or set SKILL_DISCOVERY_TOKEN "
                              "or KILN_API_TOKEN).")
     parser.add_argument("--home", default="~", help="Home directory to scan for user skill roots.")
-    parser.add_argument("--codex", action="store_true", help="Scan ~/.agents/skills.")
-    parser.add_argument("--claude", action="store_true", help="Scan ~/.claude/skills.")
+    known = ", ".join(agent_keys())
+    parser.add_argument("--agent", action="append", metavar="KEY",
+                        help=f"Scan a registered agent's user skill roots (repeatable; "
+                             f"known: {known}, or 'all'). Default when no location "
+                             f"flags are given: all.")
+    parser.add_argument("--project", action="append", metavar="DIR",
+                        help="Scan every registered agent's project-level skill roots "
+                             "under this directory (repeatable).")
+    parser.add_argument("--codex", action="store_true",
+                        help="(deprecated) Alias for --agent codex.")
+    parser.add_argument("--claude", action="store_true",
+                        help="(deprecated) Alias for --agent claude.")
     parser.add_argument("--path", action="append", help="Additional skill root to scan.")
     parser.add_argument("--source", default="custom", help="Source label for --path roots.")
     parser.add_argument("--device-id", help="Managed endpoint id. Defaults to hostname.")
@@ -103,28 +115,53 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-
-    if not args.codex and not args.claude and not args.path:
-        args.codex = True
-        args.claude = True
-
-    locations = []
+def _selected_agent_keys(parser: argparse.ArgumentParser, args) -> list[str]:
+    """Resolve --agent values plus the deprecated --claude/--codex aliases to an
+    ordered, de-duplicated list of registry keys ('all' expands the registry)."""
+    raw = list(args.agent or [])
     if args.codex:
-        locations.append(DiscoveryLocation(
-            Path(args.home).expanduser() / ".agents" / "skills",
-            "codex",
-            "user_codex",
-        ))
+        raw.append("codex")
     if args.claude:
-        locations.append(DiscoveryLocation(
-            Path(args.home).expanduser() / ".claude" / "skills",
-            "claude",
-            "user_claude",
-        ))
+        raw.append("claude")
+    if "all" in raw:
+        return agent_keys()
+    keys: list[str] = []
+    for key in raw:
+        if key not in AGENTS:
+            parser.error(f"unknown agent {key!r}; known: {', '.join(agent_keys())}, all")
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
+def _print_root_summary(locations: list[DiscoveryLocation]) -> None:
+    """Human summary of which roots were checked vs found. Goes to stderr so
+    stdout stays pure JSON for piping."""
+    print("Checked skill roots:", file=sys.stderr)
+    for loc in locations:
+        root = loc.root.expanduser()
+        status = "found" if root.is_dir() else "not present"
+        print(f"  [{status:>11}] {loc.source}:{loc.location_kind}  {root}", file=sys.stderr)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    keys = _selected_agent_keys(parser, args)
+    if not keys and not args.path and not args.project:
+        keys = agent_keys()  # zero-config default: every registered agent
+
+    home = Path(args.home).expanduser()
+    locations = user_locations(keys, home)
+    proj_keys = keys or agent_keys()  # explicit --agent scopes --project too
+    for raw in args.project or []:
+        locations.extend(project_locations(proj_keys, Path(raw).expanduser()))
     for raw in args.path or []:
         locations.append(DiscoveryLocation(Path(raw).expanduser(), args.source, "custom"))
+
+    if args.dry_run:
+        _print_root_summary(locations)
 
     report = build_discovery_report(
         locations=locations or None,

@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.9", "3.12"]
     runs-on: ${{ matrix.os }}
     steps:
@@ -20,8 +20,18 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: pip install -e . pytest
       - run: python -m pytest tests/ -q
-      - name: CLI dry run works offline against its own test fixtures
+      - name: CLI dry run works offline against a generated fixture (OS-agnostic)
+        shell: python
         run: |
-          mkdir -p /tmp/skills/demo
-          printf -- '---\nname: demo\ndescription: CI check.\n---\n\nBody.\n' > /tmp/skills/demo/SKILL.md
-          skill-discovery --path /tmp/skills --dry-run --print-json | python -c "import json,sys; r=json.load(sys.stdin); assert r['items'][0]['name']=='demo', r"
+          import json, pathlib, subprocess, sys, tempfile
+          root = pathlib.Path(tempfile.mkdtemp()) / "skills" / "demo"
+          root.mkdir(parents=True)
+          (root / "SKILL.md").write_text("---\nname: demo\ndescription: CI check.\n---\n\nBody.\n", encoding="utf-8")
+          out = subprocess.run(
+              [sys.executable, "-m", "discovery.cli", "--path", str(root.parent),
+               "--dry-run", "--print-json"],
+              capture_output=True, text=True, check=True).stdout
+          report = json.loads(out)
+          assert report["items"][0]["name"] == "demo", report
+          assert report["items"][0]["fingerprint"].startswith("sha256:"), report
+          print("dry-run OK, scanner:", report["meta"]["scanner"])
