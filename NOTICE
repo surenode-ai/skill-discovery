@@ -1,0 +1,6 @@
+skill-discovery
+Copyright 2026 Surenode
+
+Endpoint inventory agent for AI agent skills: scans local skill roots for
+SKILL.md folders, fingerprints and sanitizes what it finds, and reports the
+inventory to a governance server.

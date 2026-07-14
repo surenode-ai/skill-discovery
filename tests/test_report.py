@@ -1,0 +1,112 @@
+"""Report building: metadata-only shape, sanitized full-skill candidates, and
+fingerprint stability."""
+
+from __future__ import annotations
+
+import json
+
+from discovery import scanning
+from discovery.local import DiscoveryLocation, _fingerprint, build_discovery_report
+from discovery.scanning import Finding, Severity
+
+from tests.conftest import skill_md
+
+
+class _FakeScanner:
+    def __init__(self, findings):
+        self._findings = findings
+
+    def scan(self, files):
+        return self._findings
+
+
+def test_local_discovery_builds_metadata_only_report(tmp_path, monkeypatch):
+    root = tmp_path / "skills"
+    (root / "deploy").mkdir(parents=True)
+    (root / "deploy" / "SKILL.md").write_text(
+        skill_md("deploy", "Roll out with checks.", "Run rollout checks."),
+        encoding="utf-8",
+    )
+    scanning.set_scanner(_FakeScanner([Finding("LOW1", "output_handling", Severity.low)]))
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(root, "codex", "user_codex")],
+        upload_mode="metadata_only",
+        device_id="dev1",
+        user_id="dev@example.com",
+    )
+    assert report["device_id"] == "dev1"
+    assert len(report["items"]) == 1
+    item = report["items"][0]
+    assert item["external_id"] == "codex:user_codex:deploy"
+    assert item["name"] == "deploy"
+    assert item["scanner"] == "fake"
+    assert item["local_findings"][0]["rule_id"] == "LOW1"
+    assert "candidate" not in item
+
+    # The report is JSON serializable for the CLI POST path.
+    json.dumps(report)
+
+
+def test_local_discovery_full_skill_sanitizes_candidate(tmp_path, monkeypatch):
+    secret = "sk-ant-" + ("b" * 24)
+    root = tmp_path / "skills"
+    (root / "leaky").mkdir(parents=True)
+    (root / "leaky" / "SKILL.md").write_text(
+        skill_md("leaky", "Has a key.", f"Use {secret}."),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(root, "codex", "user_codex")],
+        upload_mode="full_skill",
+        device_id="dev2",
+    )
+    item = report["items"][0]
+    assert secret not in item["candidate"]["SKILL.md"]
+    assert "[redacted:api-key]" in item["candidate"]["SKILL.md"]
+    assert any(f["rule_id"].startswith("sanitize.redacted") for f in item["local_findings"])
+
+
+def test_fingerprint_is_stable_and_content_sensitive():
+    files = {"SKILL.md": "---\nname: a\n---\n\nbody\n", "references/x.md": "notes\n"}
+    fp1 = _fingerprint(files)
+    fp2 = _fingerprint(dict(reversed(list(files.items()))))  # order-independent
+    assert fp1 == fp2
+    assert fp1.startswith("sha256:")
+    changed = dict(files)
+    changed["references/x.md"] = "notes v2\n"
+    assert _fingerprint(changed) != fp1
+
+
+def test_missing_root_is_skipped(tmp_path, monkeypatch):
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(tmp_path / "nope", "claude", "user_claude")],
+        device_id="dev3",
+    )
+    assert report["items"] == []
+    assert report["meta"]["locations"] == [{"source": "claude", "location_kind": "user_claude"}]
+
+
+def test_heuristic_floor_flags_unsafe_skill_without_skillspector(tmp_path):
+    """No SkillSpector on the machine -> the report still carries heuristic
+    findings and says which backend ran."""
+    root = tmp_path / "skills"
+    (root / "envdump").mkdir(parents=True)
+    (root / "envdump" / "SKILL.md").write_text(
+        skill_md("envdump", "Demo.", "Run this:\n\n```bash\nprintenv | base64\n```\n"),
+        encoding="utf-8",
+    )
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(root, "custom", "custom")],
+        device_id="dev4",
+        scanner_backend="heuristics",
+    )
+    item = report["items"][0]
+    assert item["scanner"] == "heuristics"
+    assert report["meta"]["scanner"] == "heuristics"
+    cats = {f["category"] for f in item["local_findings"]}
+    assert "data_exfiltration" in cats

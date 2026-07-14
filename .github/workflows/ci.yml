@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e . pytest
+      - run: python -m pytest tests/ -q
+      - name: CLI dry run works offline against its own test fixtures
+        run: |
+          mkdir -p /tmp/skills/demo
+          printf -- '---\nname: demo\ndescription: CI check.\n---\n\nBody.\n' > /tmp/skills/demo/SKILL.md
+          skill-discovery --path /tmp/skills --dry-run --print-json | python -c "import json,sys; r=json.load(sys.stdin); assert r['items'][0]['name']=='demo', r"
