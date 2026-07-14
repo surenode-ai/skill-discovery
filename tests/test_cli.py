@@ -1,11 +1,14 @@
 """CLI-level behavior: --dry-run prints a well-formed JSON report and needs no
-server."""
+server; submissions refuse plaintext HTTP off-loopback and always time out."""
 
 from __future__ import annotations
 
+import io
 import json
 
-from discovery.cli import main
+import pytest
+
+from discovery.cli import REQUEST_TIMEOUT_SECONDS, _post, main
 
 from tests.conftest import skill_md
 
@@ -75,3 +78,59 @@ def test_cli_defaults_to_user_roots_when_no_flags(tmp_path, capsys, monkeypatch)
     kinds = {loc["location_kind"] for loc in out["meta"]["locations"]}
     assert {"user_codex", "user_claude"} <= kinds  # all registered agents, incl. these two
     assert out["items"][0]["external_id"] == "claude:user_claude:notes"
+
+
+def _skill_root(tmp_path):
+    root = tmp_path / "skills"
+    (root / "deploy").mkdir(parents=True)
+    (root / "deploy" / "SKILL.md").write_text(
+        skill_md("deploy", "Roll out with checks.", "Run rollout checks."),
+        encoding="utf-8",
+    )
+    return root
+
+
+def _fake_post(posted):
+    def post(url, body, token=None):
+        posted["url"] = url
+        return {"accepted": len(body["items"]), "flagged": 0, "blocked": 0}
+    return post
+
+
+def test_cli_refuses_plaintext_http_off_loopback(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["--path", str(_skill_root(tmp_path)),
+              "--url", "http://reports.example.com"])
+    assert exc.value.code == 2  # argparse error, before any scan or network I/O
+    assert "--allow-http" in capsys.readouterr().err
+
+
+def test_cli_allow_http_overrides_for_remote_host(tmp_path, monkeypatch):
+    posted = {}
+    monkeypatch.setattr("discovery.cli._post", _fake_post(posted))
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    rc = main(["--path", str(_skill_root(tmp_path)),
+               "--url", "http://reports.example.com", "--allow-http"])
+    assert rc == 0
+    assert posted["url"] == "http://reports.example.com/discovery/reports"
+
+
+def test_cli_loopback_http_needs_no_flag(tmp_path, monkeypatch):
+    posted = {}
+    monkeypatch.setattr("discovery.cli._post", _fake_post(posted))
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    rc = main(["--path", str(_skill_root(tmp_path)), "--url", "http://127.0.0.1:8000"])
+    assert rc == 0
+    assert posted["url"] == "http://127.0.0.1:8000/discovery/reports"
+
+
+def test_post_sets_a_timeout(monkeypatch):
+    seen = {}
+
+    def fake_urlopen(req, timeout=None):
+        seen["timeout"] = timeout
+        return io.StringIO('{"accepted": 0, "flagged": 0, "blocked": 0}')
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    _post("https://reports.example.com/discovery/reports", {"items": []})
+    assert seen["timeout"] == REQUEST_TIMEOUT_SECONDS

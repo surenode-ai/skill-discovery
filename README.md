@@ -111,6 +111,7 @@ skill-discovery --path ~/team-skills --source team-repo --dry-run
 | `--dry-run` | Print the report, contact no server |
 | `--print-json` | Print the report before submitting |
 | `--url`, `--token` | Server base URL and bearer token (see environment below) |
+| `--allow-http` | Permit plaintext `http://` to a non-loopback server. Otherwise refused, since the report and token would go unencrypted; loopback is always allowed |
 
 ## Reporting to a governance server (fleet use)
 
@@ -127,6 +128,11 @@ skill-discovery --device-id "$(hostname)" --user-id "$USER"
 Environment: `SKILL_DISCOVERY_SERVER_URL` / `SKILL_DISCOVERY_TOKEN`, with
 `KILN_SERVER_URL` / `KILN_API_TOKEN` honored as fallbacks when reporting to a
 KLIN server.
+
+The URL must be `https://` unless it points at loopback: plaintext HTTP would
+expose the report and the bearer token, so the agent refuses it unless you
+pass `--allow-http`. Requests time out after 30 seconds; in continuous mode a
+timed-out submission simply retries on the next pass.
 
 ### Upload modes and the privacy story
 

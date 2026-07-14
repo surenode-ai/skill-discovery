@@ -9,7 +9,9 @@ POSTs it to a governance server implementing ``POST /discovery/reports``.
 
 Server connection resolution (flag > env):
 - URL:   ``--url``, else ``SKILL_DISCOVERY_SERVER_URL``, else ``KILN_SERVER_URL``
-  (when reporting to a KLIN server), else ``http://127.0.0.1:8000``.
+  (when reporting to a KLIN server), else ``http://127.0.0.1:8000``. Plain
+  ``http://`` to a non-loopback host is refused unless ``--allow-http``: the
+  report and bearer token would travel unencrypted.
 - Token: ``--token``, else ``SKILL_DISCOVERY_TOKEN``, else ``KILN_API_TOKEN``.
   No token means send no auth header (fine when the server has auth off).
 """
@@ -20,6 +22,7 @@ import argparse
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -29,6 +32,9 @@ from discovery.local import DiscoveryLocation, build_discovery_report
 from discovery.loop import DEFAULT_HEARTBEAT_SECONDS, MIN_LOOP_SECONDS, run_loop
 
 DEFAULT_URL = "http://127.0.0.1:8000"
+# A hung server must not stall a submission forever: fail the request and let
+# the caller retry (in --loop mode, on the next pass).
+REQUEST_TIMEOUT_SECONDS = 30
 
 
 def _auth_headers(token: str | None) -> dict:
@@ -41,7 +47,7 @@ def _post(url: str, body: dict, token: str | None = None) -> dict:
         url, data=json.dumps(body).encode(), method="POST",
         headers={"content-type": "application/json", **_auth_headers(token)},
     )
-    with urllib.request.urlopen(req) as r:
+    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as r:
         return json.load(r)
 
 
@@ -53,6 +59,26 @@ def _resolve_url(args) -> str:
         or os.environ.get("SKILL_DISCOVERY_SERVER_URL")
         or os.environ.get("KILN_SERVER_URL")
         or DEFAULT_URL
+    )
+
+
+def _require_safe_url(parser: argparse.ArgumentParser, args) -> str:
+    """Resolve the server URL, refusing plaintext HTTP to a non-loopback host
+    unless --allow-http: the report and bearer token would travel unencrypted.
+    Loopback (localhost, 127.x, ::1) is always allowed, so the local default
+    and dev servers keep working."""
+    url = _resolve_url(args)
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme == "https":
+        return url
+    host = (parts.hostname or "").lower()
+    loopback = host in {"localhost", "::1"} or host.startswith("127.")
+    if parts.scheme == "http" and (loopback or args.allow_http):
+        return url
+    parser.error(
+        f"refusing to report to {url!r}: the report and bearer token would be "
+        f"sent unencrypted. Use an https:// URL, or pass --allow-http if you "
+        f"accept the risk (loopback is always allowed)."
     )
 
 
@@ -81,6 +107,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token",
                         help="Bearer token for the server (or set SKILL_DISCOVERY_TOKEN "
                              "or KILN_API_TOKEN).")
+    parser.add_argument("--allow-http", action="store_true",
+                        help="Permit plaintext http:// to a non-loopback server "
+                             "(otherwise refused: the report and token would go "
+                             "unencrypted).")
     parser.add_argument("--home", default="~", help="Home directory to scan for user skill roots.")
     known = ", ".join(agent_keys())
     parser.add_argument("--agent", action="append", metavar="KEY",
@@ -217,7 +247,8 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(f"--loop must be at least {MIN_LOOP_SECONDS:.0f} seconds")
         if args.heartbeat < 0:
             parser.error("--heartbeat must be 0 or positive")
-        url = _resolve_url(args)
+        # Dry-run loops never submit, so the URL scheme doesn't matter there.
+        url = _resolve_url(args) if args.dry_run else _require_safe_url(parser, args)
         token = _resolve_token(args)
 
         def _submit(report: dict) -> dict:
@@ -231,13 +262,14 @@ def main(argv: list[str] | None = None) -> int:
             print_json=args.print_json,
         )
 
+    # Validate the URL before the scan, so a refused scheme fails fast.
+    url = None if args.dry_run else _require_safe_url(parser, args)
     report = _build()
     if args.print_json or args.dry_run:
         print(json.dumps(report, indent=2))
     if args.dry_run:
         return 0
 
-    url = _resolve_url(args)
     res = _post(f"{url.rstrip('/')}/discovery/reports", report, _resolve_token(args))
     print(
         f"Reported {res['accepted']} discovered skill(s): "
