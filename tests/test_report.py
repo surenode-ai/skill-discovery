@@ -136,6 +136,39 @@ def test_rule_file_symlink_is_not_followed(tmp_path, monkeypatch):
     assert "sk-ant-" not in blob
 
 
+def test_secret_in_a_rule_filename_does_not_leak(tmp_path, monkeypatch):
+    """A rule file named like a credential must not leak through external_id,
+    relative_path, or candidate keys — sanitize_folder only cleans contents."""
+    secret = "sk-ant-" + ("x" * 28)
+    rules = tmp_path / ".cursor" / "rules"
+    rules.mkdir(parents=True)
+    (rules / f"{secret}.mdc").write_text("# r\n\ndo thing\n", encoding="utf-8")
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(rules, "cursor", "project_cursor_rules", pattern="*.mdc")],
+        upload_mode="full_skill", device_id="m")
+    assert secret not in json.dumps(report)
+    item = report["items"][0]
+    assert "[redacted:api-key]" in item["external_id"]
+    assert "[redacted:api-key]" in item["relative_path"]
+    assert all("[redacted:api-key]" in k for k in item["candidate"])
+
+
+def test_secret_in_a_skill_dir_or_inner_filename_does_not_leak(tmp_path, monkeypatch):
+    dir_secret = "sk-ant-" + ("y" * 28)
+    file_secret = "sk-ant-" + ("z" * 28)
+    sk = tmp_path / "skills" / dir_secret
+    sk.mkdir(parents=True)
+    (sk / "SKILL.md").write_text(skill_md("t", "ok", "run"), encoding="utf-8")
+    (sk / f"{file_secret}.py").write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(tmp_path / "skills", "fixture", "custom")],
+        upload_mode="full_skill", device_id="m")
+    blob = json.dumps(report)
+    assert dir_secret not in blob and file_secret not in blob
+
+
 def test_fingerprint_ignores_line_endings(tmp_path):
     """A skill checked out with CRLF (Windows/git autocrlf) must fingerprint
     identically to the LF copy — line-ending style is not a real difference."""

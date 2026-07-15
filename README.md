@@ -140,9 +140,10 @@ timed-out submission simply retries on the next pass.
 The default mode sends as little as possible:
 
 - **`metadata_only`** (default): names, descriptions, relative paths,
-  fingerprints, and findings. No file bodies leave the machine, and the
-  name/description fields are themselves redacted (see below), so a secret
-  pasted into frontmatter does not ride along.
+  fingerprints, and findings. No file bodies leave the machine, and every
+  field derived from skill content is itself redacted (see below) — including
+  the name, description, and the paths in `relative_path`/`external_id` — so a
+  secret pasted into frontmatter or a filename does not ride along.
 - **`full_skill`**: additionally uploads each skill folder, after local
   sanitization, for server-side scanning.
 
@@ -152,8 +153,9 @@ report:
 - Secrets and PII are replaced with `[redacted:...]` markers: private keys,
   JWTs, AWS/API keys, GitHub/Slack tokens, bearer tokens, URL-embedded
   passwords, SSNs, emails. This covers every text file in the skill (markdown
-  and bundled scripts alike, since `full_skill` uploads scripts too) and the
-  name/description metadata lifted from them. Redaction happens **before**
+  and bundled scripts alike, since `full_skill` uploads scripts too), the
+  name/description metadata lifted from them, and the file paths themselves (a
+  file named like a credential). Redaction happens **before**
   upload, so neither the value nor its location reaches the server.
 - Personal home-directory paths (`/Users/<name>/...`, `C:\Users\<name>\...`)
   are flagged as findings but never rewritten, because a bundled tool may

@@ -65,13 +65,22 @@ def _fingerprint(files: dict[str, str]) -> str:
 
 
 def _redact_meta(text: str) -> str:
-    """Redact secrets out of a report metadata field (name, description) that
-    was lifted verbatim from untrusted skill content. Without this a secret in
-    SKILL.md frontmatter or a rule file's first line would ride to the server
-    in the clear even in ``metadata_only`` mode, which uploads no file bodies.
-    Reuses the same redactors as file sanitization; the finding was already
-    counted when the source file was scanned, so only the cleaned text is kept."""
+    """Redact secrets out of a report field lifted verbatim from untrusted skill
+    content (name, description) or from a path segment (a skill directory or a
+    file named like a credential). Without this a secret would ride to the
+    server in the clear even in ``metadata_only`` mode, which uploads no file
+    bodies, through the description, the external_id, or the relative_path.
+    Deterministic, so an external_id built from it stays a stable upsert key;
+    reuses the same redactors as file sanitization and keeps only the cleaned
+    text (the finding was already counted when the source file was scanned)."""
     return sanitize_text(text or "")[0]
+
+
+def _redact_candidate(folder: dict[str, str]) -> dict[str, str]:
+    """Redact secrets from candidate map keys as well as values: a file named
+    like a credential would otherwise leak through the key in ``full_skill``
+    even though ``sanitize_folder`` already cleaned its contents."""
+    return {_redact_meta(path): content for path, content in folder.items()}
 
 
 def _finding_json(finding: Finding) -> dict:
@@ -219,18 +228,19 @@ def build_discovery_report(
                     findings = [_scanner_error_finding(str(exc))]
                 sanitized, sanitization = sanitize_folder(files)
                 findings = findings + _sanitization_findings(sanitization)
+                safe_rel = _redact_meta(rel)  # the filename itself may be a secret
                 items.append({
-                    "external_id": f"{loc.source}:{loc.location_kind}:{rel}",
+                    "external_id": f"{loc.source}:{loc.location_kind}:{safe_rel}",
                     "source": loc.source,
                     "location_kind": loc.location_kind,
-                    "relative_path": rel,
+                    "relative_path": safe_rel,
                     "name": _redact_meta(match.stem or match.name),
                     "description": _redact_meta(_rule_description(content)),
                     "fingerprint": _fingerprint(files),
                     "scanner": scanner_name,
                     "scanner_version": agent_version,
                     "local_findings": [_finding_json(f) for f in findings],
-                    **({"candidate": sanitized} if include_candidate else {}),
+                    **({"candidate": _redact_candidate(sanitized)} if include_candidate else {}),
                 })
             continue
         skills, errors = _discover(str(root), str(root))
@@ -257,18 +267,19 @@ def build_discovery_report(
                 except SkillParseError:
                     pass
             rel_dir = _posix(skill.rel_dir)
+            safe_rel_dir = _redact_meta(rel_dir)  # a skill dir may be named like a secret
             items.append({
-                "external_id": f"{loc.source}:{loc.location_kind}:{rel_dir}",
+                "external_id": f"{loc.source}:{loc.location_kind}:{safe_rel_dir}",
                 "source": loc.source,
                 "location_kind": loc.location_kind,
-                "relative_path": f"{rel_dir}/SKILL.md" if rel_dir else "SKILL.md",
+                "relative_path": f"{safe_rel_dir}/SKILL.md" if safe_rel_dir else "SKILL.md",
                 "name": _redact_meta(name) or "unknown",
                 "description": _redact_meta(description),
                 "fingerprint": _fingerprint(skill.files),
                 "scanner": scanner_name,
                 "scanner_version": agent_version,
                 "local_findings": [_finding_json(f) for f in findings],
-                **({"candidate": sanitized} if include_candidate else {}),
+                **({"candidate": _redact_candidate(sanitized)} if include_candidate else {}),
             })
         for err in errors:
             safe_err = _privacy_text(err, root)

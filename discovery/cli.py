@@ -49,7 +49,15 @@ def _post(url: str, body: dict, token: str | None = None) -> dict:
         headers={"content-type": "application/json", **_auth_headers(token)},
     )
     with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as r:
-        return json.load(r)
+        raw = r.read().decode("utf-8", "replace").strip()
+    # A 2xx with an empty or non-JSON body must not crash the caller; the POST
+    # was accepted, we just have no parsed counts. Callers tolerate {}.
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
 
 
 def _resolve_url(args) -> str:

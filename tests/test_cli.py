@@ -153,13 +153,33 @@ def test_cli_survives_malformed_server_response(tmp_path, monkeypatch, capsys):
     assert "Reported 1 discovered skill(s)" in out  # falls back to local item count
 
 
+class _FakeResp:
+    """Minimal context-manager stand-in for an http response with a fixed body."""
+    def __init__(self, body):
+        self._body = body.encode()
+    def read(self):
+        return self._body
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+
+
 def test_post_sets_a_timeout(monkeypatch):
     seen = {}
 
     def fake_urlopen(req, timeout=None):
         seen["timeout"] = timeout
-        return io.StringIO('{"accepted": 0, "flagged": 0, "blocked": 0}')
+        return _FakeResp('{"accepted": 0, "flagged": 0, "blocked": 0}')
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     _post("https://reports.example.com/discovery/reports", {"items": []})
     assert seen["timeout"] == REQUEST_TIMEOUT_SECONDS
+
+
+@pytest.mark.parametrize("body", ["", "   ", "not json at all", "<html>oops</html>"])
+def test_post_tolerates_empty_or_nonjson_body(monkeypatch, body):
+    """A 2xx with an empty or non-JSON body must return {} rather than raise
+    JSONDecodeError — the POST was accepted, we just have no parsed counts."""
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=None: _FakeResp(body))
+    assert _post("https://reports.example.com/discovery/reports", {"items": []}) == {}
