@@ -131,7 +131,7 @@ def test_cli_project_scanning(tmp_path, capsys, monkeypatch):
     assert all(k.startswith("project_") for k in kinds)
 
 
-def test_cli_dry_run_lists_checked_roots_on_stderr(tmp_path, capsys, monkeypatch):
+def test_cli_dry_run_lists_only_found_roots_by_default(tmp_path, capsys, monkeypatch):
     home = tmp_path / "home"
     (home / ".claude" / "skills").mkdir(parents=True)
     monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
@@ -139,10 +139,21 @@ def test_cli_dry_run_lists_checked_roots_on_stderr(tmp_path, capsys, monkeypatch
     assert rc == 0
     captured = capsys.readouterr()
     json.loads(captured.out)  # stdout stays pure JSON
-    assert "Checked locations:" in captured.err
-    assert "[      found] skills" in captured.err  # ~/.claude/skills exists
-    assert "[not present]" in captured.err         # the other roots do not
-    assert "rules " in captured.err                # rule globs listed and labeled
+    assert "Found" in captured.err and "checked locations" in captured.err
+    assert "skills claude:user_claude" in captured.err  # the found root is listed
+    assert "[not present]" not in captured.err          # empties hidden by default
+
+
+def test_cli_dry_run_verbose_lists_all_roots(tmp_path, capsys, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".claude" / "skills").mkdir(parents=True)
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    rc = main(["--home", str(home), "--dry-run", "--verbose"])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "Checked locations:" in err
+    assert "[not present]" in err          # empties shown with --verbose
+    assert "[      found] skills" in err
 
 
 # ---- OS-agnostic identity: posix separators no matter what the walker returns ----

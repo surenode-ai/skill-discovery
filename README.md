@@ -40,8 +40,9 @@ agent stores skills and instruction files (see the
 [support matrix](#agent-support-matrix)) **and** walks your home directory to
 auto discover the in repo (project level) skills committed inside your repos,
 so both your global skills and your projects' skills are found with no path
-given. It prints a JSON inventory on stdout and a human readable list of
-checked vs found locations (each labeled `skills` or `rules`) on stderr.
+given. It prints a JSON inventory on stdout and, on stderr, a short list of the
+locations that actually held skills or rules (pass `--verbose` to list every
+location checked, including the empty ones).
 `--dry-run` makes **zero network calls**: nothing leaves your machine, and it
 shows exactly what a report would contain before you deploy anything.
 
@@ -139,6 +140,7 @@ agents under your home directory and auto discovers in repo project skills.
 | `--loop <seconds>` | Continuous mode: rescan on this interval (minimum 60) and report only when the inventory changes. Without it, one shot as always |
 | `--heartbeat <seconds>` | With `--loop`: report even without change once this long has passed since the last successful submission (default 86400, i.e. daily; 0 reports every pass) |
 | `--dry-run` | Print the report, contact no server |
+| `-v`, `--verbose` | With `--dry-run`, list every checked location, not just the ones that held skills/rules |
 | `--print-json` | Print the report before submitting |
 | `--url`, `--token` | Server base URL and bearer token (see environment below) |
 | `--allow-http` | Permit plaintext `http://` to a non-loopback server. Otherwise refused, since the report and token would go unencrypted; loopback is always allowed |

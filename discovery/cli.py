@@ -184,6 +184,9 @@ def build_parser() -> argparse.ArgumentParser:
                              "installed and always keeps the built-in heuristic floor.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print the report but do not submit it (needs no server).")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="With --dry-run, list every checked location including "
+                             "empty ones (default: only locations that held skills/rules).")
     parser.add_argument("--print-json", action="store_true",
                         help="Print the report JSON before submitting.")
     parser.add_argument("--loop", type=float, metavar="SECONDS", default=None,
@@ -272,24 +275,37 @@ def _dedupe_locations(locations: list[DiscoveryLocation]) -> list[DiscoveryLocat
     return out
 
 
-def _print_root_summary(locations: list[DiscoveryLocation]) -> None:
-    """Human summary of which locations were checked vs found, distinguishing
-    SKILL.md skill roots from standalone instruction/rule file globs. Goes to
-    stderr so stdout stays pure JSON for piping."""
-    print("Checked locations:", file=sys.stderr)
+def _print_root_summary(locations: list[DiscoveryLocation], *, verbose: bool = False) -> None:
+    """Human summary of what the scan turned up, on stderr (stdout stays pure
+    JSON for piping). By default only locations that actually held skills or
+    rules are listed, with a count of how many were checked. ``--verbose`` lists
+    every checked location, including the empty ones, which helps confirm the
+    tool looked where you expected."""
+    rows = []
     for loc in locations:
         root = loc.root.expanduser()
         if loc.pattern:
             found = root.is_dir() and any(p.is_file() for p in root.glob(loc.pattern))
-            status = "found" if found else "not present"
             what = f"{root}{os.sep}{loc.pattern}"
             label = "rules "
         else:
-            status = "found" if root.is_dir() else "not present"
+            found = root.is_dir()
             what = str(root)
             label = "skills"
-        print(f"  [{status:>11}] {label} {loc.source}:{loc.location_kind}  {what}",
-              file=sys.stderr)
+        rows.append((found, label, f"{loc.source}:{loc.location_kind}", what))
+
+    if verbose:
+        print("Checked locations:", file=sys.stderr)
+        for found, label, kind, what in rows:
+            status = "found" if found else "not present"
+            print(f"  [{status:>11}] {label} {kind}  {what}", file=sys.stderr)
+        return
+
+    hits = [r for r in rows if r[0]]
+    print(f"Found {len(hits)} of {len(rows)} checked locations "
+          f"(pass --verbose to list all):", file=sys.stderr)
+    for _found, label, kind, what in hits:
+        print(f"  {label} {kind}  {what}", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -314,7 +330,7 @@ def main(argv: list[str] | None = None) -> int:
     locations = _dedupe_locations(locations)
 
     if args.dry_run:
-        _print_root_summary(locations)
+        _print_root_summary(locations, verbose=args.verbose)
 
     def _build() -> dict:
         return build_discovery_report(
