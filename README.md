@@ -44,7 +44,7 @@ given.
 
 Output adapts to who's asking. At a terminal you get a readable summary:
 findings first, then tables of skills and instruction files (name, agent,
-where, description). Piped or redirected, you get the JSON report instead — so
+where, description). Piped or redirected, you get the JSON report instead, so
 `skill-discovery --dry-run | jq …` just works. Force either with `--format
 human|json` (or `--json`). `-v` adds each item's full path and the complete
 list of locations checked; `--fail-on findings` makes it a CI gate.
