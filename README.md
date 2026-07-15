@@ -20,7 +20,7 @@ Skills fix agent amnesia, and tools like
 cheap to create. That created the next problem: I could not tell you what was
 installed on my own laptop. Research such as NVIDIA's
 [SkillSpector](https://github.com/NVIDIA/skillspector) has documented real
-malicious-skill patterns in the wild, so "I probably know what's installed"
+malicious skill patterns in the wild, so "I probably know what's installed"
 stopped being a good enough answer.
 
 skill-discovery is the smallest useful response: a single command that walks
@@ -35,29 +35,29 @@ pip install .        # from a checkout; Python 3.9+, one dependency (PyYAML)
 skill-discovery --dry-run
 ```
 
-That checks every known agent's skill roots and instruction-file locations
+That checks every known agent's skill roots and instruction file locations
 (see the [support matrix](#agent-support-matrix)) and prints a JSON inventory
-on stdout, with a human-readable list of checked vs found locations (each
+on stdout, with a human readable list of checked vs found locations (each
 labeled `skills` or `rules`) on stderr. `--dry-run` makes **zero network
 calls**: nothing leaves your machine, and it shows exactly what a report
 would contain before you deploy anything. Add `--project ~/work/myrepo` to
-include a repo's project-level skills, or `--path <dir>` for any other folder.
+include a repo's project level skills, or `--path <dir>` for any other folder.
 
 For each skill you get:
 
 - **Frontmatter parsing**: name and description from `SKILL.md`.
-- **Fingerprint**: an order-independent SHA-256 over the folder contents,
+- **Fingerprint**: an order independent SHA-256 over the folder contents,
   identical for the same skill on Windows, macOS, and Linux (paths and line
   endings are normalized, so a CRLF checkout hashes the same as an LF one).
-- **Local detection**: built-in offline heuristic rules for documented
-  malicious-skill patterns (environment dumps, hidden Office/zip payloads,
-  bytecode smuggling, scanner-directed prompt injection, package-registry
+- **Local detection**: built in offline heuristic rules for documented
+  malicious skill patterns (environment dumps, hidden Office/zip payloads,
+  bytecode smuggling, scanner directed prompt injection, package registry
   tampering). If [NVIDIA SkillSpector](https://github.com/NVIDIA/skillspector)
   is installed (`uv tool install git+https://github.com/NVIDIA/skillspector.git`),
   it runs too. The report's `scanner` field always says which backend actually
   ran (`heuristics` vs `skillspector+heuristics`).
 - **Sanitization findings**: secrets and PII that would be redacted before any
-  upload, plus personal home-directory paths worth knowing about.
+  upload, plus personal home directory paths worth knowing about.
 
 ## Agent support matrix
 
@@ -73,12 +73,12 @@ sanitized, and scanned exactly like a skill.
 | OpenAI Codex CLI (`codex`) | `~/.agents/skills`, `.agents/skills` (shared Agent Skills convention) | `AGENTS.md` exists but is not yet inventoried | [Codex skills](https://developers.openai.com/codex/skills) |
 | opencode (`opencode`) | `~/.config/opencode/skills`, `.opencode/skills` | none beyond skills | [opencode skills](https://opencode.ai/docs/skills/) |
 | Cursor (`cursor`) | `~/.cursor/skills`, `.cursor/skills` | `.cursor/rules/*.mdc` | [Cursor skills](https://cursor.com/docs/skills.md), [Cursor rules](https://cursor.com/docs/rules) |
-| Google Antigravity (`antigravity`) | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills`; project side uses the shared `.agents/skills` | no on-disk rules path documented by the vendor | [Antigravity skills codelab](https://codelabs.developers.google.com/getting-started-with-antigravity-skills) |
+| Google Antigravity (`antigravity`) | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills`; project side uses the shared `.agents/skills` | no on disk rules path documented by the vendor | [Antigravity skills codelab](https://codelabs.developers.google.com/getting-started-with-antigravity-skills) |
 | Windsurf (`windsurf`) | `~/.codeium/windsurf/skills`, `.windsurf/skills` | `.devin/rules/*.md`, legacy `.windsurf/rules/*.md`, global `~/.codeium/windsurf/memories/global_rules.md` | [Windsurf skills](https://docs.windsurf.com/windsurf/cascade/skills), [Windsurf rules](https://docs.windsurf.com/windsurf/cascade/memories) |
 | GitHub Copilot (`copilot`) | `~/.copilot/skills`, `.github/skills` (also reads the shared and Claude locations) | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md` | [Copilot skills](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills), [Copilot instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot) |
 | Kiro, AWS (`kiro`) | `~/.kiro/skills`, `.kiro/skills` | steering: `~/.kiro/steering/*.md`, `.kiro/steering/*.md` | [Kiro skills](https://kiro.dev/docs/skills/), [Kiro steering](https://kiro.dev/docs/steering/) |
 
-Several agents read the shared `.agents/skills` and Claude-compatible
+Several agents read the shared `.agents/skills` and Claude compatible
 locations. Those are listed once, under the entry that owns the convention,
 and any root two agents share is scanned only once, so nothing is double
 counted.
@@ -100,14 +100,14 @@ skill-discovery --path ~/team-skills --source team-repo --dry-run
 | Flag | Meaning |
 |---|---|
 | `--agent <key>` (repeatable) | Scan a registered agent's locations: `claude`, `codex`, `cursor`, `antigravity`, `windsurf`, `opencode`, `copilot`, `kiro`, or `all`. Default when no location flags are given: `all` |
-| `--project <dir>` (repeatable) | Scan project-level skill roots under a directory (scoped by `--agent` if given) |
+| `--project <dir>` (repeatable) | Scan project level skill roots under a directory (scoped by `--agent` if given) |
 | `--path <dir>` (repeatable) | Any additional skill root; labeled with `--source` |
 | `--claude` / `--codex` | Deprecated aliases for `--agent claude` / `--agent codex` |
 | `--home <dir>` | Home directory to resolve user skill roots under |
 | `--device-id`, `--device-name`, `--user-id` | Attribution for the fleet view (default: hostname / `$USER`/`$USERNAME`) |
 | `--upload-mode` | `metadata_only` (default) or `full_skill` |
 | `--scanner-backend` | `auto` (default), `heuristics`, `skillspector`, `none` |
-| `--loop <seconds>` | Continuous mode: rescan on this interval (minimum 60) and report only when the inventory changes. Without it, one-shot as always |
+| `--loop <seconds>` | Continuous mode: rescan on this interval (minimum 60) and report only when the inventory changes. Without it, one shot as always |
 | `--heartbeat <seconds>` | With `--loop`: report even without change once this long has passed since the last successful submission (default 86400, i.e. daily; 0 reports every pass) |
 | `--dry-run` | Print the report, contact no server |
 | `--print-json` | Print the report before submitting |
@@ -133,7 +133,7 @@ KLIN server.
 The URL must be `https://` unless it points at loopback: plaintext HTTP would
 expose the report and the bearer token, so the agent refuses it unless you
 pass `--allow-http`. Requests time out after 30 seconds; in continuous mode a
-timed-out submission simply retries on the next pass.
+timed out submission simply retries on the next pass.
 
 ### Upload modes and the privacy story
 
@@ -145,33 +145,33 @@ The default mode sends as little as possible:
   the name, description, and the paths in `relative_path`/`external_id` — so a
   secret pasted into frontmatter or a filename does not ride along.
 - **`full_skill`**: additionally uploads each skill folder, after local
-  sanitization, for server-side scanning.
+  sanitization, for server side scanning.
 
 Sanitization runs locally in both modes, and its findings are part of the
 report:
 
 - Secrets and PII are replaced with `[redacted:...]` markers: private keys,
-  JWTs, AWS/API keys, GitHub/Slack tokens, bearer tokens, URL-embedded
+  JWTs, AWS/API keys, GitHub/Slack tokens, bearer tokens, URL embedded
   passwords, SSNs, emails. This covers every text file in the skill (markdown
   and bundled scripts alike, since `full_skill` uploads scripts too), the
   name/description metadata lifted from them, and the file paths themselves (a
   file named like a credential). Redaction happens **before**
   upload, so neither the value nor its location reaches the server.
-- Personal home-directory paths (`/Users/<name>/...`, `C:\Users\<name>\...`)
+- Personal home directory paths (`/Users/<name>/...`, `C:\Users\<name>\...`)
   are flagged as findings but never rewritten, because a bundled tool may
   legitimately need them.
-- Directory-walk errors are scrubbed of home paths and usernames before they
+- Directory walk errors are scrubbed of home paths and usernames before they
   are reported.
 
-Redaction is pattern-based and best-effort, not a guarantee. Review a
+Redaction is pattern based and best effort, not a guarantee. Review a
 `--dry-run` report from a representative machine before enabling
-`full_skill` fleet-wide.
+`full_skill` fleet wide.
 
 ### Deploying across a fleet
 
 The simplest deployment is continuous mode: run it as a service and it
 reports when the inventory changes, with a daily heartbeat so the server's
-last-seen stays current.
+last seen stays current.
 
 ```bash
 skill-discovery --loop 900 --device-id "$(hostname)" --user-id "$USER"
@@ -186,7 +186,7 @@ cleanly, and state is in memory only, so after a restart it submits once and
 the server upserts. Run it as the console user, since the skill roots live in
 user homes. `--dry-run --loop` works too, and prints instead of submitting:
 each report is one complete JSON document, so stdout becomes a stream of
-newline-separated JSON documents in order.
+newline separated JSON documents in order.
 
 Service recipes:
 
@@ -219,7 +219,7 @@ Service recipes:
     /TR "skill-discovery --loop 900 --device-id %COMPUTERNAME% --user-id %USERNAME%"
   ```
 
-Prefer an external schedule? The one-shot command works under any scheduler
+Prefer an external schedule? The one shot command works under any scheduler
 (Jamf or Intune policy, cron, a daily `schtasks` trigger, a launchd
 `StartCalendarInterval`): run it daily per user session and the server's
 inventory stays current, since reports upsert by `device_id` plus skill
@@ -277,7 +277,7 @@ layer you report into.
 
 ## Using this on a team?
 
-If your team needs these reports to flow into per-tenant policy, drift
+If your team needs these reports to flow into per tenant policy, drift
 detection, and a review workflow before anyone acts on them, that governance
 layer is what [Surenode](https://surenode.ai) builds on top of this agent:
 KLIN ingests the reports and gives security teams the fleet inventory and the
@@ -292,7 +292,7 @@ python3 -m venv .venv && .venv/bin/pip install -e . pytest
 ```
 
 CI runs the suite on Python 3.9 and 3.12 across Linux, macOS, and Windows.
-See [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign-off required) and
+See [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign off required) and
 [SECURITY.md](SECURITY.md).
 
 ## License
