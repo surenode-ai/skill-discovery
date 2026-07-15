@@ -131,17 +131,20 @@ def test_cli_project_scanning(tmp_path, capsys, monkeypatch):
     assert all(k.startswith("project_") for k in kinds)
 
 
-def test_cli_dry_run_lists_only_found_roots_by_default(tmp_path, capsys, monkeypatch):
+def test_cli_dry_run_shows_found_items_as_table(tmp_path, capsys, monkeypatch):
     home = tmp_path / "home"
-    (home / ".claude" / "skills").mkdir(parents=True)
+    (home / ".claude" / "skills" / "deploy").mkdir(parents=True)
+    (home / ".claude" / "skills" / "deploy" / "SKILL.md").write_text(
+        skill_md("deploy", "Roll out with checks.", "Steps."), encoding="utf-8")
     monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
     rc = main(["--home", str(home), "--device-id", "dev", "--dry-run"])
     assert rc == 0
     captured = capsys.readouterr()
     json.loads(captured.out)  # stdout stays pure JSON
-    assert "Found" in captured.err and "checked locations" in captured.err
-    assert "skills claude:user_claude" in captured.err  # the found root is listed
-    assert "[not present]" not in captured.err          # empties hidden by default
+    assert "NAME" in captured.err and "DESCRIPTION" in captured.err  # table header
+    assert "deploy" in captured.err
+    assert "Roll out" in captured.err                 # the description column
+    assert "[not present]" not in captured.err        # no noisy location list by default
 
 
 def test_cli_dry_run_verbose_lists_all_roots(tmp_path, capsys, monkeypatch):

@@ -23,6 +23,7 @@ import dataclasses
 import ipaddress
 import json
 import os
+import shutil
 import sys
 import urllib.parse
 import urllib.request
@@ -275,13 +276,36 @@ def _dedupe_locations(locations: list[DiscoveryLocation]) -> list[DiscoveryLocat
     return out
 
 
-def _print_root_summary(locations: list[DiscoveryLocation], *, verbose: bool = False) -> None:
-    """Human summary of what the scan turned up, on stderr (stdout stays pure
-    JSON for piping). By default only locations that actually held skills or
-    rules are listed, with a count of how many were checked. ``--verbose`` lists
-    every checked location, including the empty ones, which helps confirm the
-    tool looked where you expected."""
-    rows = []
+def _clip(text: object, width: int) -> str:
+    """Collapse whitespace and truncate to width with an ellipsis."""
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= width else text[: max(1, width - 1)] + "…"
+
+
+def _print_item_table(items: list[dict]) -> None:
+    """Tabulate the found skills/instruction files on stderr: name, description,
+    and which agent they belong to. Description flexes to the terminal width."""
+    name_w = max(len("NAME"), min(max((len(i.get("name") or "") for i in items), default=4), 28))
+    src_w = max(len("SOURCE"), min(max((len(i.get("source") or "") for i in items), default=6), 16))
+    width = shutil.get_terminal_size((100, 20)).columns
+    desc_w = max(20, width - name_w - src_w - 6)
+
+    def line(name: object, desc: object, src: object) -> str:
+        return (f"  {_clip(name, name_w):<{name_w}}  "
+                f"{_clip(desc, desc_w):<{desc_w}}  {_clip(src, src_w)}")
+
+    print(line("NAME", "DESCRIPTION", "SOURCE"), file=sys.stderr)
+    print(f"  {'-' * name_w}  {'-' * desc_w}  {'-' * src_w}", file=sys.stderr)
+    for item in items:
+        print(line(item.get("name"), item.get("description"), item.get("source")),
+              file=sys.stderr)
+
+
+def _print_checked_locations(locations: list[DiscoveryLocation]) -> None:
+    """The full checked-vs-not-present location list (``--verbose``); confirms
+    the tool looked where you expected, distinguishing skill roots from rule
+    globs."""
+    print("Checked locations:", file=sys.stderr)
     for loc in locations:
         root = loc.root.expanduser()
         if loc.pattern:
@@ -292,20 +316,28 @@ def _print_root_summary(locations: list[DiscoveryLocation], *, verbose: bool = F
             found = root.is_dir()
             what = str(root)
             label = "skills"
-        rows.append((found, label, f"{loc.source}:{loc.location_kind}", what))
+        status = "found" if found else "not present"
+        print(f"  [{status:>11}] {label} {loc.source}:{loc.location_kind}  {what}",
+              file=sys.stderr)
 
+
+def _print_dry_run_summary(report: dict, locations: list[DiscoveryLocation],
+                           *, verbose: bool = False) -> None:
+    """Human summary on stderr (stdout stays pure JSON for piping): a table of
+    what was actually found, and, with ``--verbose``, the full list of every
+    location checked including the empty ones."""
+    items = report.get("items", [])
+    checked = len(locations)
+    if items:
+        print(f"Found {len(items)} skill(s) and instruction file(s) "
+              f"({checked} locations checked):\n", file=sys.stderr)
+        _print_item_table(items)
+    else:
+        print(f"No skills or instruction files found ({checked} locations checked).",
+              file=sys.stderr)
     if verbose:
-        print("Checked locations:", file=sys.stderr)
-        for found, label, kind, what in rows:
-            status = "found" if found else "not present"
-            print(f"  [{status:>11}] {label} {kind}  {what}", file=sys.stderr)
-        return
-
-    hits = [r for r in rows if r[0]]
-    print(f"Found {len(hits)} of {len(rows)} checked locations "
-          f"(pass --verbose to list all):", file=sys.stderr)
-    for _found, label, kind, what in hits:
-        print(f"  {label} {kind}  {what}", file=sys.stderr)
+        print(file=sys.stderr)
+        _print_checked_locations(locations)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -328,9 +360,6 @@ def main(argv: list[str] | None = None) -> int:
         locations.extend(_discover_project_locations(proj_keys, home, args))
 
     locations = _dedupe_locations(locations)
-
-    if args.dry_run:
-        _print_root_summary(locations, verbose=args.verbose)
 
     def _build() -> dict:
         return build_discovery_report(
@@ -366,6 +395,8 @@ def main(argv: list[str] | None = None) -> int:
     # Validate the URL before the scan, so a refused scheme fails fast.
     url = None if args.dry_run else _require_safe_url(parser, args)
     report = _build()
+    if args.dry_run:
+        _print_dry_run_summary(report, locations, verbose=args.verbose)
     if args.print_json or args.dry_run:
         print(json.dumps(report, indent=2))
     if args.dry_run:

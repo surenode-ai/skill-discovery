@@ -40,9 +40,10 @@ agent stores skills and instruction files (see the
 [support matrix](#agent-support-matrix)) **and** walks your home directory to
 auto discover the in repo (project level) skills committed inside your repos,
 so both your global skills and your projects' skills are found with no path
-given. It prints a JSON inventory on stdout and, on stderr, a short list of the
-locations that actually held skills or rules (pass `--verbose` to list every
-location checked, including the empty ones).
+given. It prints a JSON inventory on stdout and, on stderr, a table of the
+skills and instruction files it found (name, description, and which agent), with
+a count of how many locations were checked. Pass `--verbose` to also list every
+location checked, including the empty ones.
 `--dry-run` makes **zero network calls**: nothing leaves your machine, and it
 shows exactly what a report would contain before you deploy anything.
 
