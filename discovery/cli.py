@@ -117,9 +117,12 @@ def _resolve_token(args) -> str | None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skill-discovery",
-        description="Endpoint inventory of AI agent skills: scan local skill "
-                    "folders, run local detection, and report the inventory to "
-                    "a governance server (or print it with --dry-run).",
+        description="Endpoint inventory of AI agent skills. Run with no "
+                    "arguments to scan every known agent's skill and "
+                    "instruction locations under your home directory, run local "
+                    "detection, and report the inventory to a governance server "
+                    "(or print it with --dry-run). The flags below are optional: "
+                    "narrow the scan, or reach into repos and extra folders.",
     )
     parser.add_argument("--version", action="version", version=f"skill-discovery {__version__}")
     parser.add_argument("--url", default=None,
@@ -135,17 +138,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--home", default="~", help="Home directory to scan for user skill roots.")
     known = ", ".join(agent_keys())
     parser.add_argument("--agent", action="append", metavar="KEY",
-                        help=f"Scan a registered agent's user skill roots (repeatable; "
-                             f"known: {known}, or 'all'). Default when no location "
-                             f"flags are given: all.")
+                        help=f"(optional) Narrow the scan to specific agents "
+                             f"(repeatable; known: {known}, or 'all'). Default "
+                             f"when no location flags are given: every agent.")
     parser.add_argument("--project", action="append", metavar="DIR",
-                        help="Scan every registered agent's project-level skill roots "
-                             "under this directory (repeatable).")
+                        help="(optional) Also scan a repo's in-repo (project-level) "
+                             "skill roots under this directory (repeatable). These "
+                             "live inside individual repos, so the tool does not "
+                             "find them on its own.")
     parser.add_argument("--codex", action="store_true",
                         help="(deprecated) Alias for --agent codex.")
     parser.add_argument("--claude", action="store_true",
                         help="(deprecated) Alias for --agent claude.")
-    parser.add_argument("--path", action="append", help="Additional skill root to scan.")
+    parser.add_argument("--path", action="append",
+                        help="(optional) Also scan an extra skill root, e.g. a "
+                             "mounted team share (repeatable).")
     parser.add_argument("--source", default="custom", help="Source label for --path roots.")
     parser.add_argument("--device-id", help="Managed endpoint id. Defaults to hostname.")
     parser.add_argument("--device-name", help="Human-readable endpoint name.")

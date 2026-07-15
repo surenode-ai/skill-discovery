@@ -35,13 +35,18 @@ pip install .        # from a checkout; Python 3.9+, one dependency (PyYAML)
 skill-discovery --dry-run
 ```
 
-That checks every known agent's skill roots and instruction file locations
-(see the [support matrix](#agent-support-matrix)) and prints a JSON inventory
-on stdout, with a human readable list of checked vs found locations (each
-labeled `skills` or `rules`) on stderr. `--dry-run` makes **zero network
-calls**: nothing leaves your machine, and it shows exactly what a report
-would contain before you deploy anything. Add `--project ~/work/myrepo` to
-include a repo's project level skills, or `--path <dir>` for any other folder.
+No paths, no config. With no arguments the tool already knows where every
+supported agent stores its skills and instruction files (see the
+[support matrix](#agent-support-matrix)) and checks all of them under your home
+directory. It prints a JSON inventory on stdout and a human readable list of
+checked vs found locations (each labeled `skills` or `rules`) on stderr.
+`--dry-run` makes **zero network calls**: nothing leaves your machine, and it
+shows exactly what a report would contain before you deploy anything.
+
+That covers your global (user-level) skills. Two optional flags reach further:
+`--project ~/work/myrepo` also includes a repo's in-repo (project-level)
+skills, which live inside individual repos the tool does not go hunting for on
+its own; `--path <dir>` adds any other folder, such as a mounted team share.
 
 For each skill you get:
 
@@ -90,18 +95,26 @@ vendor's docs. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## CLI reference
 
+The zero-argument run is the normal one — everything else is optional narrowing
+or reaching further:
+
 ```bash
-skill-discovery --dry-run                          # all agents
-skill-discovery --agent claude --dry-run           # one agent only
-skill-discovery --project ~/work/repo --dry-run    # a repo's project-level skills
-skill-discovery --path ~/team-skills --source team-repo --dry-run
+skill-discovery                                    # scan every known agent, submit
+skill-discovery --dry-run                          # same, but print instead of submit
+skill-discovery --loop 900                         # run continuously as a service
+skill-discovery --agent claude --dry-run           # narrow to one agent
+skill-discovery --project ~/work/repo --dry-run    # also include a repo's in-repo skills
+skill-discovery --path ~/team-skills --source team-repo --dry-run   # also scan an extra folder
 ```
+
+Every flag below is optional; with none of them the tool scans all registered
+agents under your home directory.
 
 | Flag | Meaning |
 |---|---|
-| `--agent <key>` (repeatable) | Scan a registered agent's locations: `claude`, `codex`, `cursor`, `antigravity`, `windsurf`, `opencode`, `copilot`, `kiro`, or `all`. Default when no location flags are given: `all` |
-| `--project <dir>` (repeatable) | Scan project level skill roots under a directory (scoped by `--agent` if given) |
-| `--path <dir>` (repeatable) | Any additional skill root; labeled with `--source` |
+| `--agent <key>` (repeatable) | Narrow to specific agents: `claude`, `codex`, `cursor`, `antigravity`, `windsurf`, `opencode`, `copilot`, `kiro`, or `all`. Default with no location flags: every agent |
+| `--project <dir>` (repeatable) | Also scan a repo's in-repo (project-level) skill roots under this directory (scoped by `--agent` if given) |
+| `--path <dir>` (repeatable) | Also scan any extra skill root, e.g. a mounted team share; labeled with `--source` |
 | `--claude` / `--codex` | Deprecated aliases for `--agent claude` / `--agent codex` |
 | `--home <dir>` | Home directory to resolve user skill roots under |
 | `--device-id`, `--device-name`, `--user-id` | Attribution for the fleet view (default: hostname / `$USER`/`$USERNAME`) |
