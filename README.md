@@ -310,11 +310,7 @@ noticed", nothing more. That judgment belongs to you, or to the governance
 layer you report into.
 
 Scoped to instructions, not execution. It inventories skills and standing
-instruction files — the agent's *influence* surface. It is **not** a full agent
-attack-surface scanner: it does not cover MCP server configs, hooks,
-permissions, or model-endpoint/gateway settings (the agent's execution and
-data-flow wiring). See [decisions.md](decisions.md) for what is in scope, what
-is a natural future addition, and what is deliberately out.
+instruction files — the agent's *influence* surface.
 
 ## Using this on a team?
 
