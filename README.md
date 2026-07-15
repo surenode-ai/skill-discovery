@@ -47,7 +47,8 @@ For each skill you get:
 
 - **Frontmatter parsing**: name and description from `SKILL.md`.
 - **Fingerprint**: an order-independent SHA-256 over the folder contents,
-  identical for the same skill on Windows, macOS, and Linux.
+  identical for the same skill on Windows, macOS, and Linux (paths and line
+  endings are normalized, so a CRLF checkout hashes the same as an LF one).
 - **Local detection**: built-in offline heuristic rules for documented
   malicious-skill patterns (environment dumps, hidden Office/zip payloads,
   bytecode smuggling, scanner-directed prompt injection, package-registry
@@ -139,17 +140,21 @@ timed-out submission simply retries on the next pass.
 The default mode sends as little as possible:
 
 - **`metadata_only`** (default): names, descriptions, relative paths,
-  fingerprints, and findings. No skill content leaves the machine.
+  fingerprints, and findings. No file bodies leave the machine, and the
+  name/description fields are themselves redacted (see below), so a secret
+  pasted into frontmatter does not ride along.
 - **`full_skill`**: additionally uploads each skill folder, after local
   sanitization, for server-side scanning.
 
 Sanitization runs locally in both modes, and its findings are part of the
 report:
 
-- Secrets and PII in skill markdown become `[redacted:...]` markers: private
-  keys, JWTs, AWS/API keys, GitHub/Slack tokens, bearer tokens, URL-embedded
-  passwords, SSNs, emails. Redaction happens **before** upload, so neither the
-  value nor its location reaches the server.
+- Secrets and PII are replaced with `[redacted:...]` markers: private keys,
+  JWTs, AWS/API keys, GitHub/Slack tokens, bearer tokens, URL-embedded
+  passwords, SSNs, emails. This covers every text file in the skill (markdown
+  and bundled scripts alike, since `full_skill` uploads scripts too) and the
+  name/description metadata lifted from them. Redaction happens **before**
+  upload, so neither the value nor its location reaches the server.
 - Personal home-directory paths (`/Users/<name>/...`, `C:\Users\<name>\...`)
   are flagged as findings but never rewritten, because a bundled tool may
   legitimately need them.
