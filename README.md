@@ -38,24 +38,24 @@ skill-discovery --dry-run
 No paths, no config. With no arguments the tool scans where every supported
 agent stores skills and instruction files (see the
 [support matrix](#agent-support-matrix)) **and** walks your home directory to
-auto-discover the in-repo (project-level) skills committed inside your repos —
+auto discover the in repo (project level) skills committed inside your repos,
 so both your global skills and your projects' skills are found with no path
 given. It prints a JSON inventory on stdout and a human readable list of
 checked vs found locations (each labeled `skills` or `rules`) on stderr.
 `--dry-run` makes **zero network calls**: nothing leaves your machine, and it
 shows exactly what a report would contain before you deploy anything.
 
-Auto-discovery is bounded (it prunes caches and build trees, reads directory
+Auto discovery is bounded (it prunes caches and build trees, reads directory
 structure not file contents, and has a time budget), so it stays fast enough to
 run on every launch. A few knobs:
 
 - `--no-discover-projects` turns it off (falls back to global skills only).
-- `--discover-root <dir>` (or the `SKILL_DISCOVERY_ROOTS` env var, os-path
+- `--discover-root <dir>` (or the `SKILL_DISCOVERY_ROOTS` env var, os path
   separated) adds a base for code that lives **outside** your home, e.g.
   `/workspace` on a managed machine.
 - `--project <dir>` scans one specific repo; `--path <dir>` adds any other
-  folder, such as a mounted team share. Both run *in addition to* auto-discovery
-  — they add locations, they don't replace it. To scan only what you name, pass
+  folder, such as a mounted team share. Both run *in addition to* auto discovery
+  (they add locations, they don't replace it). To scan only what you name, pass
   `--no-discover-projects` as well.
 
 For each skill you get:
@@ -85,7 +85,7 @@ sanitized, and scanned exactly like a skill.
 | Agent | Skill roots (user, project) | Instruction files | Source |
 |---|---|---|---|
 | Claude Code (`claude`) | `~/.claude/skills`, `.claude/skills` | `~/.claude/CLAUDE.md`, `CLAUDE.md`, `CLAUDE.local.md` | [Claude memory](https://code.claude.com/docs/en/memory) |
-| OpenAI Codex CLI (`codex`) | `~/.agents/skills`, `.agents/skills` (shared Agent Skills convention) | `AGENTS.md` (cross-tool standard) | [Codex skills](https://developers.openai.com/codex/skills), [agents.md](https://agents.md/) |
+| OpenAI Codex CLI (`codex`) | `~/.agents/skills`, `.agents/skills` (shared Agent Skills convention) | `AGENTS.md` (cross tool standard) | [Codex skills](https://developers.openai.com/codex/skills), [agents.md](https://agents.md/) |
 | opencode (`opencode`) | `~/.config/opencode/skills`, `.opencode/skills` | none beyond skills | [opencode skills](https://opencode.ai/docs/skills/) |
 | Cursor (`cursor`) | `~/.cursor/skills`, `.cursor/skills` | `.cursor/rules/**/*.mdc`, legacy `.cursorrules` | [Cursor skills](https://cursor.com/docs/skills.md), [Cursor rules](https://cursor.com/docs/rules) |
 | Google Antigravity (`antigravity`) | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills`; project side uses the shared `.agents/skills` | no on disk rules path documented by the vendor | [Antigravity skills codelab](https://codelabs.developers.google.com/getting-started-with-antigravity-skills) |
@@ -108,28 +108,28 @@ vendor's docs. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## CLI reference
 
-The zero-argument run is the normal one — everything else is optional narrowing
+The zero argument run is the normal one; everything else is optional narrowing
 or reaching further:
 
 ```bash
-skill-discovery                                    # global + auto-discovered project skills, submit
+skill-discovery                                    # global + auto discovered project skills, submit
 skill-discovery --dry-run                          # same, but print instead of submit
 skill-discovery --loop 900                         # run continuously as a service
 skill-discovery --agent claude --dry-run           # narrow to one agent
-skill-discovery --discover-root /workspace --dry-run   # also auto-discover code outside home
+skill-discovery --discover-root /workspace --dry-run   # also auto discover code outside home
 skill-discovery --no-discover-projects --dry-run   # global skills only, no home walk
 ```
 
 Every flag below is optional; with none of them the tool scans all registered
-agents under your home directory and auto-discovers in-repo project skills.
+agents under your home directory and auto discovers in repo project skills.
 
 | Flag | Meaning |
 |---|---|
 | `--agent <key>` (repeatable) | Narrow to specific agents: `claude`, `codex`, `cursor`, `antigravity`, `windsurf`, `opencode`, `copilot`, `kiro`, or `all`. Default with no location flags: every agent |
-| `--no-discover-projects` | Turn off automatic discovery of in-repo project skills under your home directory (on by default) |
-| `--discover-root <dir>` (repeatable) | Additional base to auto-discover project skills under, for code outside home (also via `SKILL_DISCOVERY_ROOTS`, os-path separated) |
-| `--discover-timeout <seconds>` | Wall-clock budget for project discovery per base (default 20); if exceeded, discovery stops and reports what it found |
-| `--project <dir>` (repeatable) | Also scan one specific repo's in-repo skill roots (rarely needed; project skills under home are auto-discovered) |
+| `--no-discover-projects` | Turn off automatic discovery of in repo project skills under your home directory (on by default) |
+| `--discover-root <dir>` (repeatable) | Additional base to auto discover project skills under, for code outside home (also via `SKILL_DISCOVERY_ROOTS`, os path separated) |
+| `--discover-timeout <seconds>` | Wall clock budget for project discovery per base (default 20); if exceeded, discovery stops and reports what it found |
+| `--project <dir>` (repeatable) | Also scan one specific repo's in repo skill roots (rarely needed; project skills under home are auto discovered) |
 | `--path <dir>` (repeatable) | Also scan any extra skill root, e.g. a mounted team share; labeled with `--source` |
 | `--claude` / `--codex` | Deprecated aliases for `--agent claude` / `--agent codex` |
 | `--home <dir>` | Home directory to resolve user skill roots under |
@@ -170,8 +170,8 @@ The default mode sends as little as possible:
 
 - **`metadata_only`** (default): names, descriptions, relative paths,
   fingerprints, and findings. No file bodies leave the machine, and every
-  field derived from skill content is itself redacted (see below) — including
-  the name, description, and the paths in `relative_path`/`external_id` — so a
+  field derived from skill content is itself redacted (see below), including
+  the name, description, and the paths in `relative_path`/`external_id`, so a
   secret pasted into frontmatter or a filename does not ride along.
 - **`full_skill`**: additionally uploads each skill folder, after local
   sanitization, for server side scanning.
@@ -216,13 +216,13 @@ the server upserts. `--dry-run --loop` works too, and prints instead of
 submitting: each report is one complete JSON document, so stdout becomes a
 stream of newline separated JSON documents in order.
 
-Two things matter for a fleet rollout. **Run it as the developer** (a per-user
+Two things matter for a fleet rollout. **Run it as the developer** (a per user
 LaunchAgent, systemd `--user` service, or login item), not as a root daemon:
-it scans and auto-discovers under the running user's home, so a system service
+it scans and auto discovers under the running user's home, so a system service
 would inventory the service account's empty home instead of the developer's.
 And if your developers keep code **outside** their home (a shared `/workspace`,
 mounted repos), point discovery there with `SKILL_DISCOVERY_ROOTS` in the
-deployment profile. Each project skill is reported with a per-repo identity, so
+deployment profile. Each project skill is reported with a per repo identity, so
 two developers' identically named skills stay distinct on the server.
 
 Service recipes:
@@ -313,7 +313,7 @@ noticed", nothing more. That judgment belongs to you, or to the governance
 layer you report into.
 
 Scoped to instructions, not execution. It inventories skills and standing
-instruction files — the agent's *influence* surface.
+instruction files, the agent's *influence* surface.
 
 ## Using this on a team?
 
