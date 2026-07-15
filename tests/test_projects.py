@@ -90,6 +90,10 @@ def test_project_label():
     base = os.path.join(os.sep, "home", "u")
     assert project_label(os.path.join(base, "dev", "klin"), base) == "dev/klin"
     assert project_label(base, base) == ""            # base itself -> unlabeled
+    # Not under base at all: basename fallback, never a ".." traversal in the id.
+    outside = project_label(os.path.join(os.sep, "tmp", "other"), base)
+    assert outside == "other"
+    assert ".." not in outside
 
 
 # --- CLI integration -------------------------------------------------------

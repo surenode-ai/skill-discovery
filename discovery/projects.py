@@ -95,31 +95,45 @@ def discover_project_roots(
     roots: set[str] = set()
     truncated = False
     start = clock()
+
+    def over_budget() -> bool:
+        return time_budget is not None and clock() - start > time_budget
+
     stack: list[tuple[str, int]] = [(base, 0)]
     while stack:
-        if time_budget is not None and clock() - start > time_budget:
+        if over_budget():
             truncated = True
             break
         path, depth = stack.pop()
         try:
-            with os.scandir(path) as it:
-                entries = list(it)
+            it = os.scandir(path)
         except (PermissionError, OSError):
             continue  # unreadable dir on a fleet machine — skip, don't crash
-        for e in entries:
-            try:
-                if not e.is_dir(follow_symlinks=False):
+        # Iterate lazily rather than materializing the whole directory: a single
+        # dir with enormous fan-out must stay interruptible by the time budget,
+        # so re-check it every so many entries instead of only between dirs.
+        try:
+            for n, e in enumerate(it):
+                if n % 2048 == 0 and over_budget():
+                    truncated = True
+                    break
+                try:
+                    if not e.is_dir(follow_symlinks=False):
+                        continue
+                except OSError:
                     continue
-            except OSError:
-                continue
-            name = e.name
-            if name in _MARKERS:
-                if _confirms(path, name):
-                    roots.add(path)
-                continue  # never recurse into a marker/config dir
-            if name in deny or depth + 1 >= max_depth:
-                continue
-            stack.append((e.path, depth + 1))
+                name = e.name
+                if name in _MARKERS:
+                    if _confirms(path, name):
+                        roots.add(path)
+                    continue  # never recurse into a marker/config dir
+                if name in deny or depth + 1 >= max_depth:
+                    continue
+                stack.append((e.path, depth + 1))
+        finally:
+            it.close()
+        if truncated:
+            break
     return sorted(roots), truncated
 
 
@@ -132,10 +146,13 @@ def project_label(root: str, base: str) -> str:
     except ValueError:  # different drive on Windows
         rel = os.path.basename(root)
     rel = rel.replace("\\", "/")
-    if rel == "..":
-        return os.path.basename(root.rstrip("/\\"))
     if rel == ".":
         return ""  # the base itself (e.g. ~ with ~/.claude/skills): leave
         # unlabeled so it dedups against the user-level scan and never emits the
         # home directory's basename (the username) as a label.
+    if rel.startswith(".."):
+        # Not under base at all: fall back to the basename rather than leak a
+        # ../.. traversal into the external_id. (The CLI only feeds roots found
+        # under a base, so this guards a misuse of the helper, not a live path.)
+        return os.path.basename(root.rstrip("/\\"))
     return rel

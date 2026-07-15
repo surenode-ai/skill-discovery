@@ -54,7 +54,9 @@ run on every launch. A few knobs:
   separated) adds a base for code that lives **outside** your home, e.g.
   `/workspace` on a managed machine.
 - `--project <dir>` scans one specific repo; `--path <dir>` adds any other
-  folder, such as a mounted team share.
+  folder, such as a mounted team share. Both run *in addition to* auto-discovery
+  — they add locations, they don't replace it. To scan only what you name, pass
+  `--no-discover-projects` as well.
 
 For each skill you get:
 
