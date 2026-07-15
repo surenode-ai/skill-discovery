@@ -13,7 +13,7 @@ import socket
 from dataclasses import dataclass
 from pathlib import Path
 
-from discovery.sanitize import SanitizationReport, sanitize_folder
+from discovery.sanitize import SanitizationReport, sanitize_folder, sanitize_text
 from discovery.scanning import Finding, ScannerError, Severity, configure_scanner, get_scanner
 from discovery.skillmd import SkillParseError, parse_skill_md
 from discovery.walker import MAX_SKILLS, _discover, _read_text
@@ -52,6 +52,16 @@ def _fingerprint(files: dict[str, str]) -> str:
         h.update(files[path].encode())
         h.update(b"\0")
     return "sha256:" + h.hexdigest()
+
+
+def _redact_meta(text: str) -> str:
+    """Redact secrets out of a report metadata field (name, description) that
+    was lifted verbatim from untrusted skill content. Without this a secret in
+    SKILL.md frontmatter or a rule file's first line would ride to the server
+    in the clear even in ``metadata_only`` mode, which uploads no file bodies.
+    Reuses the same redactors as file sanitization; the finding was already
+    counted when the source file was scanned, so only the cleaned text is kept."""
+    return sanitize_text(text or "")[0]
 
 
 def _finding_json(finding: Finding) -> dict:
@@ -164,8 +174,16 @@ def build_discovery_report(
             # Standalone instruction/rule files (Cursor rules, Kiro steering,
             # Copilot instructions, ...): one report item per matching file,
             # fingerprinted, sanitized, and scanned exactly like a skill folder.
+            root_real = os.path.realpath(root)
             for match in sorted(root.glob(loc.pattern))[:MAX_SKILLS]:
-                if not match.is_file():
+                # Skip symlinks, and anything that resolves outside the root via
+                # a symlinked path component: the skill-folder walker refuses to
+                # follow symlinks, and a rule file must not be the hole that
+                # reads (and uploads) an arbitrary target like ~/.ssh/id_rsa.
+                if match.is_symlink() or not match.is_file():
+                    continue
+                match_real = os.path.realpath(match)
+                if match_real != root_real and not match_real.startswith(root_real + os.sep):
                     continue
                 content = _read_text(str(match))
                 if content is None:
@@ -183,8 +201,8 @@ def build_discovery_report(
                     "source": loc.source,
                     "location_kind": loc.location_kind,
                     "relative_path": rel,
-                    "name": match.stem or match.name,
-                    "description": _rule_description(content),
+                    "name": _redact_meta(match.stem or match.name),
+                    "description": _redact_meta(_rule_description(content)),
                     "fingerprint": _fingerprint(files),
                     "scanner": scanner_name,
                     "scanner_version": agent_version,
@@ -216,8 +234,8 @@ def build_discovery_report(
                 "source": loc.source,
                 "location_kind": loc.location_kind,
                 "relative_path": f"{rel_dir}/SKILL.md" if rel_dir else "SKILL.md",
-                "name": name or "unknown",
-                "description": description or "",
+                "name": _redact_meta(name) or "unknown",
+                "description": _redact_meta(description),
                 "fingerprint": _fingerprint(skill.files),
                 "scanner": scanner_name,
                 "scanner_version": agent_version,

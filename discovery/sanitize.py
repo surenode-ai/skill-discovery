@@ -11,9 +11,11 @@ server. Two kinds of finding:
   e.g. a tool stored under ``/Users/<name>/...``. A tool may legitimately need
   that path, so we surface it to the operator rather than silently rewriting it.
 
-Only Markdown files are scanned (SKILL.md, references/*.md, and markdown rule
-files such as Cursor's *.mdc). Script and asset contents are out of scope: what
-happens inside a bundled tool is the tool's concern, not ours.
+Every text file in the folder is scanned, not just Markdown. The walker only
+ever reads text into a folder (SKILL.md, references, and bundled scripts such
+as ``.py``/``.sh``/``.json``), and in ``full_skill`` mode those script files
+are uploaded too, so a secret in a script must be redacted before upload just
+like one in prose.
 """
 
 from __future__ import annotations
@@ -134,8 +136,6 @@ def sanitize_folder(folder: dict[str, str]) -> tuple[dict[str, str], Sanitizatio
     seen_paths: set[tuple[str, str]] = set()
 
     for path, content in folder.items():
-        if not path.endswith((".md", ".mdc")):
-            continue  # tool/script/asset internals are out of scope
         new = content
         for kind, rx, repl in _REDACTORS:
             new, n = rx.subn(repl, new)

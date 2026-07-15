@@ -4,6 +4,7 @@ fingerprint stability."""
 from __future__ import annotations
 
 import json
+import os
 
 from discovery import scanning
 from discovery.local import DiscoveryLocation, _fingerprint, build_discovery_report
@@ -79,6 +80,60 @@ def test_fingerprint_is_stable_and_content_sensitive():
     changed = dict(files)
     changed["references/x.md"] = "notes v2\n"
     assert _fingerprint(changed) != fp1
+
+
+def test_metadata_only_redacts_secret_in_description(tmp_path, monkeypatch):
+    """metadata_only uploads no file bodies, only fields like description. A
+    secret placed in SKILL.md frontmatter must not ride along in the clear."""
+    secret = "sk-ant-" + ("a" * 28)
+    root = tmp_path / "skills"
+    (root / "leaky").mkdir(parents=True)
+    (root / "leaky" / "SKILL.md").write_text(
+        skill_md("leaky", f"Use token {secret}", "body"), encoding="utf-8")
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(root, "codex", "user_codex")], device_id="m")
+    item = report["items"][0]
+    assert "candidate" not in item          # metadata_only
+    assert secret not in item["description"]
+    assert "[redacted:api-key]" in item["description"]
+
+
+def test_full_skill_redacts_secret_in_bundled_script(tmp_path, monkeypatch):
+    """full_skill uploads scripts alongside SKILL.md; a secret in a .py file
+    must be redacted in the candidate, not just secrets in markdown."""
+    secret = "sk-ant-" + ("b" * 28)
+    root = tmp_path / "skills"
+    (root / "tool").mkdir(parents=True)
+    (root / "tool" / "SKILL.md").write_text(
+        skill_md("tool", "A tool.", "Run it."), encoding="utf-8")
+    (root / "tool" / "run.py").write_text(f"KEY = {secret!r}\n", encoding="utf-8")
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(root, "codex", "user_codex")],
+        upload_mode="full_skill", device_id="m")
+    candidate = report["items"][0]["candidate"]
+    assert secret not in candidate["run.py"]
+    assert "[redacted:api-key]" in candidate["run.py"]
+
+
+def test_rule_file_symlink_is_not_followed(tmp_path, monkeypatch):
+    """A rule-file glob must not follow a symlink to an arbitrary target the
+    way an unguarded read would (e.g. .cursor/rules/x.mdc -> ~/.ssh/id_rsa)."""
+    secret_target = tmp_path / "outside_secret"
+    secret_target.write_text("sk-ant-" + ("c" * 28) + "\n", encoding="utf-8")
+    rules = tmp_path / ".cursor" / "rules"
+    rules.mkdir(parents=True)
+    os.symlink(secret_target, rules / "linked.mdc")
+    (rules / "real.mdc").write_text("# real rule\n\nDo the thing.\n", encoding="utf-8")
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(rules, "cursor", "project_cursor_rules", pattern="*.mdc")],
+        upload_mode="full_skill", device_id="m")
+    rels = {i["relative_path"] for i in report["items"]}
+    assert rels == {"real.mdc"}  # the symlink is skipped, the real file is kept
+    blob = json.dumps(report)
+    assert "sk-ant-" not in blob
 
 
 def test_missing_root_is_skipped(tmp_path, monkeypatch):

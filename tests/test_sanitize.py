@@ -52,15 +52,18 @@ def test_flags_personal_paths_without_removing():
     assert any("Users" in p and "dana" in p for p in found)
 
 
-def test_tool_internals_out_of_scope():
-    # Non-markdown files (scripts/assets) are never scanned or modified.
+def test_scripts_are_redacted_not_just_markdown():
+    # full_skill uploads bundled scripts too, so a secret in a script must be
+    # redacted just like one in prose. (Regression: previously non-markdown
+    # files were skipped and their secrets shipped in the clear.)
     folder = {
         "SKILL.md": "# s\n\nSee [tool](scripts/run.py).\n",
         "scripts/run.py": "API_KEY = 'sk-ant-abcdefghijklmnopqrstuvwxyz0123'\n",
     }
     clean, report = sanitize_folder(folder)
-    assert clean["scripts/run.py"] == folder["scripts/run.py"]  # untouched
-    assert report.clean
+    assert "sk-ant-abcdefghijklmnopqrstuvwxyz0123" not in clean["scripts/run.py"]
+    assert "[redacted:api-key]" in clean["scripts/run.py"]
+    assert not report.clean
 
 
 def test_clean_folder_reports_clean():
