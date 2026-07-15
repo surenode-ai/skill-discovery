@@ -98,7 +98,9 @@ def _discover(root: str, location: str) -> tuple[list[DiscoveredSkill], list[str
     skill_dirs: list[str] = []
     for cur, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in _PRUNE_DIRS and not os.path.islink(os.path.join(cur, d))]
-        if "SKILL.md" in files:
+        # A symlinked SKILL.md would read (and, in full_skill, upload) its
+        # target and otherwise yield a phantom empty skill; skip such dirs.
+        if "SKILL.md" in files and not os.path.islink(os.path.join(cur, "SKILL.md")):
             skill_dirs.append(cur)
     skill_dirs.sort()
 

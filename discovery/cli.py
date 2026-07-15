@@ -19,6 +19,7 @@ Server connection resolution (flag > env):
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import sys
@@ -62,18 +63,30 @@ def _resolve_url(args) -> str:
     )
 
 
+def _is_loopback(host: str) -> bool:
+    """True only for the loopback literal 'localhost' or an address that
+    actually parses as loopback (127.0.0.0/8, ::1). String-prefix checks like
+    host.startswith('127.') are unsafe: they accept a DNS name such as
+    '127.0.0.1.evil.com' that resolves anywhere."""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False  # a hostname, not an IP literal — never treated as loopback
+
+
 def _require_safe_url(parser: argparse.ArgumentParser, args) -> str:
     """Resolve the server URL, refusing plaintext HTTP to a non-loopback host
     unless --allow-http: the report and bearer token would travel unencrypted.
-    Loopback (localhost, 127.x, ::1) is always allowed, so the local default
-    and dev servers keep working."""
+    Loopback (localhost, 127.0.0.0/8, ::1) is always allowed, so the local
+    default and dev servers keep working."""
     url = _resolve_url(args)
     parts = urllib.parse.urlsplit(url)
     if parts.scheme == "https":
         return url
     host = (parts.hostname or "").lower()
-    loopback = host in {"localhost", "::1"} or host.startswith("127.")
-    if parts.scheme == "http" and (loopback or args.allow_http):
+    if parts.scheme == "http" and (_is_loopback(host) or args.allow_http):
         return url
     parser.error(
         f"refusing to report to {url!r}: the report and bearer token would be "
@@ -271,9 +284,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     res = _post(f"{url.rstrip('/')}/discovery/reports", report, _resolve_token(args))
+    # A malicious or buggy server can return anything; don't index blindly.
+    res = res if isinstance(res, dict) else {}
+    accepted = res.get("accepted", len(report["items"]))
     print(
-        f"Reported {res['accepted']} discovered skill(s): "
-        f"{res['flagged']} flagged, {res['blocked']} blocked."
+        f"Reported {accepted} discovered skill(s): "
+        f"{res.get('flagged', 0)} flagged, {res.get('blocked', 0)} blocked."
     )
     return 0
 

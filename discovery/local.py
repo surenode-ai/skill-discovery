@@ -14,7 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from discovery.sanitize import SanitizationReport, sanitize_folder, sanitize_text
-from discovery.scanning import Finding, ScannerError, Severity, configure_scanner, get_scanner
+from discovery.scanning import (
+    Finding, ScannerError, Severity, configure_scanner,
+    findings_for_skipped_files, get_scanner,
+)
 from discovery.skillmd import SkillParseError, parse_skill_md
 from discovery.walker import MAX_SKILLS, _discover, _read_text
 
@@ -44,12 +47,19 @@ def _posix(path: str) -> str:
     return path.replace("\\", "/")
 
 
+def _normalize_eol(text: str) -> str:
+    """Collapse CRLF and lone CR to LF so a skill fingerprints identically
+    whether it was checked out on Windows (git autocrlf) or Unix. Line-ending
+    style is not a meaningful difference between two copies of the same skill."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _fingerprint(files: dict[str, str]) -> str:
     h = hashlib.sha256()
     for path in sorted(files, key=_posix):
         h.update(_posix(path).encode())
         h.update(b"\0")
-        h.update(files[path].encode())
+        h.update(_normalize_eol(files[path]).encode())
         h.update(b"\0")
     return "sha256:" + h.hexdigest()
 
@@ -80,6 +90,19 @@ def _scanner_error_finding(message: str) -> Finding:
         category="scanner_error",
         severity=Severity.medium,
         title=message,
+    )
+
+
+def _invalid_skill_finding(error: str | None) -> Finding:
+    """The skill's SKILL.md did not parse. Surface it as a finding so a broken
+    or malformed manifest is visible in the report instead of silently
+    appearing as a normal item with an empty name/description."""
+    return Finding(
+        rule_id="local.invalid_skill_md",
+        category="invalid_manifest",
+        severity=Severity.low,
+        title=error or "SKILL.md did not parse.",
+        path="SKILL.md",
     )
 
 
@@ -219,6 +242,11 @@ def build_discovery_report(
                 findings = [_scanner_error_finding(str(exc))]
             sanitized, sanitization = sanitize_folder(skill.files)
             findings = findings + _sanitization_findings(sanitization)
+            if not skill.valid:
+                findings.append(_invalid_skill_finding(skill.error))
+            # An executable/archive the walker had to skip (non-UTF-8 or
+            # oversized) is a hidden-payload tell; surface it in the report.
+            findings.extend(findings_for_skipped_files(skill.skipped_files))
             name = skill.name
             description = skill.description
             if not skill.valid:

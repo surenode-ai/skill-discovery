@@ -124,6 +124,35 @@ def test_cli_loopback_http_needs_no_flag(tmp_path, monkeypatch):
     assert posted["url"] == "http://127.0.0.1:8000/discovery/reports"
 
 
+@pytest.mark.parametrize("host", ["127.0.0.1.evil.com", "127.evil.com", "notlocalhost"])
+def test_cli_rejects_hostnames_that_only_look_like_loopback(tmp_path, capsys, host):
+    """A DNS name that merely starts with '127.' or contains 'localhost' is not
+    loopback and must be refused over plaintext http."""
+    with pytest.raises(SystemExit) as exc:
+        main(["--path", str(_skill_root(tmp_path)), "--url", f"http://{host}"])
+    assert exc.value.code == 2
+    assert "--allow-http" in capsys.readouterr().err
+
+
+def test_cli_accepts_ipv6_loopback(tmp_path, monkeypatch):
+    posted = {}
+    monkeypatch.setattr("discovery.cli._post", _fake_post(posted))
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    rc = main(["--path", str(_skill_root(tmp_path)), "--url", "http://[::1]:8000"])
+    assert rc == 0
+    assert posted["url"] == "http://[::1]:8000/discovery/reports"
+
+
+def test_cli_survives_malformed_server_response(tmp_path, monkeypatch, capsys):
+    """A server returning {} (or a non-dict) must not crash the one-shot CLI."""
+    monkeypatch.setattr("discovery.cli._post", lambda url, body, token=None: {})
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    rc = main(["--path", str(_skill_root(tmp_path)), "--url", "http://127.0.0.1:8000"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Reported 1 discovered skill(s)" in out  # falls back to local item count
+
+
 def test_post_sets_a_timeout(monkeypatch):
     seen = {}
 

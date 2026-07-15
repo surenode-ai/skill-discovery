@@ -136,6 +136,54 @@ def test_rule_file_symlink_is_not_followed(tmp_path, monkeypatch):
     assert "sk-ant-" not in blob
 
 
+def test_fingerprint_ignores_line_endings(tmp_path):
+    """A skill checked out with CRLF (Windows/git autocrlf) must fingerprint
+    identically to the LF copy — line-ending style is not a real difference."""
+    lf = {"SKILL.md": "---\nname: a\n---\n\nline one\nline two\n"}
+    crlf = {"SKILL.md": lf["SKILL.md"].replace("\n", "\r\n")}
+    assert _fingerprint(lf) == _fingerprint(crlf)
+    # Real content changes still change the fingerprint.
+    assert _fingerprint({"SKILL.md": lf["SKILL.md"] + "extra\n"}) != _fingerprint(lf)
+
+
+def test_broken_frontmatter_is_flagged_in_report(tmp_path, monkeypatch):
+    root = tmp_path / "skills"
+    (root / "broken").mkdir(parents=True)
+    (root / "broken" / "SKILL.md").write_text("no frontmatter at all\n", encoding="utf-8")
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(root, "custom", "custom")], device_id="m")
+    rule_ids = {f["rule_id"] for f in report["items"][0]["local_findings"]}
+    assert "local.invalid_skill_md" in rule_ids
+
+
+def test_unscannable_script_becomes_a_report_finding(tmp_path, monkeypatch):
+    """A non-UTF-8 script is skipped by the walker; report assembly must turn
+    that skip into a finding, not drop it silently."""
+    root = tmp_path / "skills"
+    (root / "tool").mkdir(parents=True)
+    (root / "tool" / "SKILL.md").write_text(
+        skill_md("tool", "A tool.", "Run it."), encoding="utf-8")
+    (root / "tool" / "payload.py").write_bytes(b"print('x')\n\xff\xfe\x00bad")
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(root, "custom", "custom")], device_id="m")
+    rule_ids = {f["rule_id"] for f in report["items"][0]["local_findings"]}
+    assert "unscannable-executable" in rule_ids
+
+
+def test_symlinked_skill_md_produces_no_phantom_item(tmp_path, monkeypatch):
+    root = tmp_path / "skills"
+    (root / "ghost").mkdir(parents=True)
+    target = tmp_path / "elsewhere.md"
+    target.write_text("---\nname: ghost\n---\n\nbody\n", encoding="utf-8")
+    os.symlink(target, root / "ghost" / "SKILL.md")
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    report = build_discovery_report(
+        locations=[DiscoveryLocation(root, "custom", "custom")], device_id="m")
+    assert report["items"] == []  # a symlinked SKILL.md is not a real local skill
+
+
 def test_missing_root_is_skipped(tmp_path, monkeypatch):
     monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
     report = build_discovery_report(

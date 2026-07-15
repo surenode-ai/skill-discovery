@@ -10,9 +10,21 @@ via ``discovery.scanning.configure_scanner``).
 
 from __future__ import annotations
 
+import re
 from typing import Protocol
 
 from discovery.scanning.models import Finding, Severity
+
+# Control characters (incl. ESC, newlines, tabs) in scanner-supplied strings.
+# JSON encoding already stops terminal execution, but a raw ANSI/newline
+# payload can still corrupt a downstream log or UI, so we neutralize it here.
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _scrub(value: object, cap: int = 300) -> str:
+    """Flatten untrusted scanner text: strip control characters and bound the
+    length so a hostile report can't inject escapes or blow up a log line."""
+    return _CONTROL_RE.sub(" ", str(value or ""))[:cap]
 
 
 class ScannerError(Exception):
@@ -82,7 +94,7 @@ def set_scanner(scanner: Scanner | None) -> None:
 def _norm_category(value: object) -> str:
     """Canonicalize a category to snake_case so labels match across scanners
     (e.g. 'Data Exfiltration' -> 'data_exfiltration')."""
-    return str(value or "unknown").strip().lower().replace(" ", "_").replace("-", "_")
+    return _scrub(value or "unknown", cap=80).strip().lower().replace(" ", "_").replace("-", "_")
 
 
 def parse_skillspector_report(report: dict) -> list[Finding]:
@@ -100,12 +112,13 @@ def parse_skillspector_report(report: dict) -> list[Finding]:
             if not isinstance(it, dict):
                 continue
             loc = it.get("location") if isinstance(it.get("location"), dict) else {}
+            path = (loc or {}).get("file")
             out.append(Finding(
-                rule_id=str(it.get("id") or "unknown"),
+                rule_id=_scrub(it.get("id") or "unknown", cap=120),
                 category=_norm_category(it.get("category") or it.get("id")),
                 severity=Severity.parse(it.get("severity", "medium")),
-                title=str(it.get("explanation") or it.get("finding") or it.get("remediation") or ""),
-                path=(loc or {}).get("file"),
+                title=_scrub(it.get("explanation") or it.get("finding") or it.get("remediation") or ""),
+                path=_scrub(path, cap=1024) if path else None,
             ))
         return out
 
@@ -123,11 +136,11 @@ def parse_skillspector_report(report: dict) -> list[Finding]:
                 if locs and isinstance(locs[0], dict):
                     path = ((locs[0].get("physicalLocation") or {}).get("artifactLocation") or {}).get("uri")
                 out.append(Finding(
-                    rule_id=rule_id,
+                    rule_id=_scrub(rule_id, cap=120),
                     category=_norm_category(r.get("category") or rule_id),
                     severity=Severity.parse(r.get("level", "warning")),
-                    title=str(msg or ""),
-                    path=path,
+                    title=_scrub(msg or ""),
+                    path=_scrub(path, cap=1024) if path else None,
                 ))
         return out
 
@@ -142,11 +155,12 @@ def parse_skillspector_report(report: dict) -> list[Finding]:
         if not isinstance(it, dict):
             continue
         rule_id = str(it.get("id") or it.get("rule_id") or it.get("ruleId") or "unknown")
+        path = it.get("path") or it.get("location") or it.get("file")
         out.append(Finding(
-            rule_id=rule_id,
+            rule_id=_scrub(rule_id, cap=120),
             category=_norm_category(it.get("category") or it.get("type") or rule_id),
             severity=Severity.parse(it.get("severity", "medium")),
-            title=str(it.get("title") or it.get("message") or it.get("description") or ""),
-            path=it.get("path") or it.get("location") or it.get("file"),
+            title=_scrub(it.get("title") or it.get("message") or it.get("description") or ""),
+            path=_scrub(path, cap=1024) if path else None,
         ))
     return out
