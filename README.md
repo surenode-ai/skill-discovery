@@ -84,14 +84,17 @@ sanitized, and scanned exactly like a skill.
 
 | Agent | Skill roots (user, project) | Instruction files | Source |
 |---|---|---|---|
-| Claude Code (`claude`) | `~/.claude/skills`, `.claude/skills` | `CLAUDE.md` memory files exist but are not yet inventoried | Anthropic docs |
-| OpenAI Codex CLI (`codex`) | `~/.agents/skills`, `.agents/skills` (shared Agent Skills convention) | `AGENTS.md` exists but is not yet inventoried | [Codex skills](https://developers.openai.com/codex/skills) |
+| Claude Code (`claude`) | `~/.claude/skills`, `.claude/skills` | `~/.claude/CLAUDE.md`, `CLAUDE.md`, `CLAUDE.local.md` | [Claude memory](https://code.claude.com/docs/en/memory) |
+| OpenAI Codex CLI (`codex`) | `~/.agents/skills`, `.agents/skills` (shared Agent Skills convention) | `AGENTS.md` (cross-tool standard) | [Codex skills](https://developers.openai.com/codex/skills), [agents.md](https://agents.md/) |
 | opencode (`opencode`) | `~/.config/opencode/skills`, `.opencode/skills` | none beyond skills | [opencode skills](https://opencode.ai/docs/skills/) |
-| Cursor (`cursor`) | `~/.cursor/skills`, `.cursor/skills` | `.cursor/rules/*.mdc` | [Cursor skills](https://cursor.com/docs/skills.md), [Cursor rules](https://cursor.com/docs/rules) |
+| Cursor (`cursor`) | `~/.cursor/skills`, `.cursor/skills` | `.cursor/rules/**/*.mdc`, legacy `.cursorrules` | [Cursor skills](https://cursor.com/docs/skills.md), [Cursor rules](https://cursor.com/docs/rules) |
 | Google Antigravity (`antigravity`) | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills`; project side uses the shared `.agents/skills` | no on disk rules path documented by the vendor | [Antigravity skills codelab](https://codelabs.developers.google.com/getting-started-with-antigravity-skills) |
-| Windsurf (`windsurf`) | `~/.codeium/windsurf/skills`, `.windsurf/skills` | `.devin/rules/*.md`, legacy `.windsurf/rules/*.md`, global `~/.codeium/windsurf/memories/global_rules.md` | [Windsurf skills](https://docs.windsurf.com/windsurf/cascade/skills), [Windsurf rules](https://docs.windsurf.com/windsurf/cascade/memories) |
+| Windsurf (`windsurf`) | `~/.codeium/windsurf/skills`, `.windsurf/skills` | `.devin/rules/**/*.md`, `.windsurf/rules/**/*.md`, legacy `.windsurfrules`, global `~/.codeium/windsurf/memories/global_rules.md` | [Windsurf skills](https://docs.windsurf.com/windsurf/cascade/skills), [Windsurf rules](https://docs.windsurf.com/windsurf/cascade/memories) |
 | GitHub Copilot (`copilot`) | `~/.copilot/skills`, `.github/skills` (also reads the shared and Claude locations) | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md` | [Copilot skills](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills), [Copilot instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot) |
-| Kiro, AWS (`kiro`) | `~/.kiro/skills`, `.kiro/skills` | steering: `~/.kiro/steering/*.md`, `.kiro/steering/*.md` | [Kiro skills](https://kiro.dev/docs/skills/), [Kiro steering](https://kiro.dev/docs/steering/) |
+| Kiro, AWS (`kiro`) | `~/.kiro/skills`, `.kiro/skills` | steering: `~/.kiro/steering/**/*.md`, `.kiro/steering/**/*.md` | [Kiro skills](https://kiro.dev/docs/skills/), [Kiro steering](https://kiro.dev/docs/steering/) |
+| Gemini CLI (`gemini`) | none documented | `~/.gemini/GEMINI.md`, `GEMINI.md` | [Gemini CLI memory](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/auto-memory.md) |
+| Cline (`cline`) | none documented | `.clinerules/**/*.md`, global `~/Documents/Cline/Rules/**/*.md`, `~/.agents/AGENTS.md` | [Cline rules](https://docs.cline.bot/features/cline-rules) |
+| Roo Code (`roo`) | none documented | `.roo/rules/**/*.md`, legacy `.roorules`, global `~/.roo/rules/**/*.md` | [Roo instructions](https://docs.roocode.com/features/custom-instructions) |
 
 Several agents read the shared `.agents/skills` and Claude compatible
 locations. Those are listed once, under the entry that owns the convention,

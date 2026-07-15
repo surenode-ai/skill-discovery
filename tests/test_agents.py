@@ -21,29 +21,41 @@ from tests.conftest import skill_md
 
 def test_registry_user_locations(tmp_path):
     locs = user_locations(["claude"], tmp_path)
-    assert locs == [DiscoveryLocation(tmp_path / ".claude" / "skills", "claude", "user_claude")]
+    # The skill root plus the ~/.claude/CLAUDE.md memory rule glob.
+    assert DiscoveryLocation(tmp_path / ".claude" / "skills", "claude", "user_claude") in locs
+    assert any(l.location_kind == "user_claude_rules" and l.pattern == ".claude/CLAUDE.md"
+               for l in locs)
 
 
 def test_registry_project_locations(tmp_path):
     locs = project_locations(["codex", "opencode"], tmp_path)
-    assert (tmp_path / ".agents" / "skills", "codex", "project_codex") == (
-        locs[0].root, locs[0].source, locs[0].location_kind)
-    assert (tmp_path / ".opencode" / "skills", "opencode", "project_opencode") == (
-        locs[1].root, locs[1].source, locs[1].location_kind)
+    assert any(l.location_kind == "project_codex" and l.pattern is None
+               and l.root == tmp_path / ".agents" / "skills" for l in locs)
+    assert any(l.location_kind == "project_codex_rules" and l.pattern == "AGENTS.md"
+               for l in locs)
+    assert any(l.location_kind == "project_opencode"
+               and l.root == tmp_path / ".opencode" / "skills" for l in locs)
 
 
 def test_registry_covers_documented_agents():
     assert set(agent_keys()) == {"codex", "claude", "opencode", "cursor",
-                                 "antigravity", "windsurf", "copilot", "kiro"}
+                                 "antigravity", "windsurf", "copilot", "kiro",
+                                 "gemini", "cline", "roo"}
     for spec in AGENTS.values():
-        assert spec.user_roots  # every agent has at least a user-level root
+        # Every agent contributes at least one location (skills or instructions).
+        assert (spec.user_roots or spec.project_roots
+                or spec.user_rule_globs or spec.project_rule_globs)
     # Rule globs shipped where the vendor documents instruction files.
-    assert AGENTS["cursor"].project_rule_globs == (".cursor/rules/*.mdc",)
-    assert ".kiro/steering/*.md" in AGENTS["kiro"].project_rule_globs
-    assert ".kiro/steering/*.md" in AGENTS["kiro"].user_rule_globs
+    assert ".cursor/rules/**/*.mdc" in AGENTS["cursor"].project_rule_globs  # recursive
+    assert "AGENTS.md" in AGENTS["codex"].project_rule_globs
+    assert "CLAUDE.md" in AGENTS["claude"].project_rule_globs
+    assert ".claude/CLAUDE.md" in AGENTS["claude"].user_rule_globs
+    assert "GEMINI.md" in AGENTS["gemini"].project_rule_globs
+    assert ".kiro/steering/**/*.md" in AGENTS["kiro"].project_rule_globs
     assert ".github/copilot-instructions.md" in AGENTS["copilot"].project_rule_globs
-    assert ".github/instructions/*.instructions.md" in AGENTS["copilot"].project_rule_globs
     assert ".codeium/windsurf/memories/global_rules.md" in AGENTS["windsurf"].user_rule_globs
+    # Instruction-only agents document no SKILL.md roots; the registry must not invent any.
+    assert AGENTS["gemini"].user_roots == () and AGENTS["gemini"].project_roots == ()
     # Antigravity documents no on-disk rules path; the registry must not invent one.
     assert AGENTS["antigravity"].project_rule_globs == ()
     assert AGENTS["antigravity"].user_rule_globs == ()
@@ -59,9 +71,10 @@ def test_cli_agent_all_is_default(tmp_path, capsys, monkeypatch):
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     kinds = {loc["location_kind"] for loc in out["meta"]["locations"]}
-    # Every agent's user skill root is checked; rule-glob locations appear
-    # under their own ..._rules kinds.
-    assert {f"user_{k}" for k in agent_keys()} <= kinds
+    # Every agent is checked, as a user skill root (user_<k>) and/or, for
+    # instruction-only agents, a rule-glob location (user_<k>_rules).
+    for k in agent_keys():
+        assert f"user_{k}" in kinds or f"user_{k}_rules" in kinds
     assert all(k.startswith("user_") for k in kinds)
 
 
@@ -94,7 +107,9 @@ def test_cli_claude_codex_aliases(tmp_path, capsys, monkeypatch):
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     kinds = {loc["location_kind"] for loc in out["meta"]["locations"]}
-    assert kinds == {"user_claude", "user_codex"}  # opencode not implied by aliases
+    # claude also contributes its ~/.claude/CLAUDE.md rule glob; codex has no
+    # user-level rule glob. opencode is not implied by the aliases.
+    assert kinds == {"user_claude", "user_claude_rules", "user_codex"}
 
 
 # ---- CLI: project-level scanning ----

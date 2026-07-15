@@ -150,3 +150,57 @@ def test_cli_discover_roots_env_var(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("SKILL_DISCOVERY_ROOTS", str(workspace))
     out = _run(["--home", str(home), "--dry-run"], monkeypatch, capsys)
     assert any("svc:fmt" in i["external_id"] for i in out["items"])
+
+
+# --- instruction files: AGENTS.md / CLAUDE.md / GEMINI.md, recursion, new agents ---
+
+def test_auto_discovers_agents_md_only_repo(tmp_path, capsys, monkeypatch):
+    """A repo with only AGENTS.md — no marker directory — is still found by the
+    zero-path walk, via file-marker anchoring."""
+    home = tmp_path / "home"
+    repo = home / "dev" / "svc"
+    repo.mkdir(parents=True)
+    (repo / "AGENTS.md").write_text("# Agent rules\n\nBe careful.\n", encoding="utf-8")
+    out = _run(["--home", str(home), "--dry-run"], monkeypatch, capsys)
+    ids = [i["external_id"] for i in out["items"]]
+    assert "codex:project_codex_rules:dev/svc:AGENTS.md" in ids
+
+
+def test_auto_discovers_claude_md(tmp_path, capsys, monkeypatch):
+    home = tmp_path / "home"
+    repo = home / "work" / "app"
+    repo.mkdir(parents=True)
+    (repo / "CLAUDE.md").write_text("# Project memory\n", encoding="utf-8")
+    out = _run(["--home", str(home), "--dry-run"], monkeypatch, capsys)
+    ids = [i["external_id"] for i in out["items"]]
+    assert "claude:project_claude_rules:work/app:CLAUDE.md" in ids
+
+
+def test_recursive_cursor_rules_glob(tmp_path, capsys, monkeypatch):
+    proj = tmp_path / "repo"
+    (proj / ".cursor" / "rules" / "sub").mkdir(parents=True)
+    (proj / ".cursor" / "rules" / "top.mdc").write_text("# top\n", encoding="utf-8")
+    (proj / ".cursor" / "rules" / "sub" / "deep.mdc").write_text("# deep\n", encoding="utf-8")
+    out = _run(["--project", str(proj), "--no-discover-projects", "--dry-run"],
+               monkeypatch, capsys)
+    rels = {i["relative_path"] for i in out["items"]}
+    assert ".cursor/rules/top.mdc" in rels           # top level
+    assert ".cursor/rules/sub/deep.mdc" in rels       # and nested (recursive **)
+
+
+def test_gemini_user_memory_file(tmp_path, capsys, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".gemini").mkdir(parents=True)
+    (home / ".gemini" / "GEMINI.md").write_text("# global gemini\n", encoding="utf-8")
+    out = _run(["--home", str(home), "--agent", "gemini", "--dry-run"], monkeypatch, capsys)
+    ids = [i["external_id"] for i in out["items"]]
+    assert "gemini:user_gemini_rules:.gemini/GEMINI.md" in ids
+
+
+def test_roo_legacy_rules_file(tmp_path, capsys, monkeypatch):
+    proj = tmp_path / "repo"
+    proj.mkdir()
+    (proj / ".roorules").write_text("Follow the house style.\n", encoding="utf-8")
+    out = _run(["--project", str(proj), "--no-discover-projects", "--dry-run"],
+               monkeypatch, capsys)
+    assert any(i["external_id"] == "roo:project_roo_rules:.roorules" for i in out["items"])

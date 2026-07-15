@@ -24,19 +24,31 @@ from pathlib import Path
 from discovery.agents import AGENTS
 
 
-def _confirm_map() -> dict[str, list[str]]:
-    """marker dotdir -> the concrete registry subpaths that must actually exist
-    for it to count. ``.github`` is in every repo (CI); only ``.github/skills``
-    and the like are real project skill locations."""
-    out: dict[str, list[str]] = {}
+def _marker_maps() -> tuple[dict[str, list[str]], frozenset[str]]:
+    """Split the registry's project locations into two anchor kinds:
+
+    - DIR markers: a subpath under a directory (``.github/skills``,
+      ``.cursor/rules/**/*.mdc``). ``.github`` alone is in every repo (CI), so a
+      dir marker only counts when its concrete subpath actually exists.
+    - FILE markers: a bare instruction file at the project root (``AGENTS.md``,
+      ``CLAUDE.md``, ``GEMINI.md``, ``.windsurfrules``). A repo may have only
+      one of these and no marker directory, so the walk anchors on them too."""
+    dir_markers: dict[str, list[str]] = {}
+    file_markers: set[str] = set()
     for spec in AGENTS.values():
-        for rel in spec.project_roots + spec.project_rule_globs:
+        for rel in spec.project_roots:
             rel = rel.replace("\\", "/")
-            out.setdefault(rel.split("/")[0], []).append(rel)
-    return out
+            dir_markers.setdefault(rel.split("/")[0], []).append(rel)
+        for rel in spec.project_rule_globs:
+            rel = rel.replace("\\", "/")
+            if "/" in rel:
+                dir_markers.setdefault(rel.split("/")[0], []).append(rel)
+            elif "*" not in rel:
+                file_markers.add(rel)  # a specific filename at the project root
+    return dir_markers, frozenset(file_markers)
 
 
-_CONFIRM = _confirm_map()
+_CONFIRM, _FILE_MARKERS = _marker_maps()
 _MARKERS = frozenset(_CONFIRM)
 
 # Directory names never worth descending into. Heavy build/dependency/cache
@@ -70,7 +82,7 @@ def _confirms(parent: str, marker: str) -> bool:
     for sub in _CONFIRM[marker]:
         full = os.path.join(parent, *sub.split("/"))
         if "*" in sub:
-            if _glob.glob(full):
+            if _glob.glob(full, recursive=True):  # patterns may use ** now
                 return True
         elif sub.endswith(".md"):
             if os.path.isfile(full):
@@ -117,12 +129,17 @@ def discover_project_roots(
                 if n % 2048 == 0 and over_budget():
                     truncated = True
                     break
+                name = e.name
                 try:
-                    if not e.is_dir(follow_symlinks=False):
-                        continue
+                    is_dir = e.is_dir(follow_symlinks=False)
                 except OSError:
                     continue
-                name = e.name
+                if not is_dir:
+                    # A bare instruction file (AGENTS.md, CLAUDE.md, ...) makes
+                    # this directory a project root even without a marker dir.
+                    if name in _FILE_MARKERS and not e.is_symlink():
+                        roots.add(path)
+                    continue
                 if name in _MARKERS:
                     if _confirms(path, name):
                         roots.add(path)

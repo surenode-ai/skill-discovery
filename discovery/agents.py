@@ -22,7 +22,10 @@ Sources for the shipped entries:
 - codex:    ``~/.agents/skills`` (user) and ``$REPO_ROOT/.agents/skills``
             (project), the cross-agent Agent Skills convention.
             https://developers.openai.com/codex/skills
+            Also owns the cross-tool ``AGENTS.md`` standard. https://agents.md/
 - claude:   ``~/.claude/skills`` and ``.claude/skills`` (Anthropic docs).
+            Memory files: ``~/.claude/CLAUDE.md`` (user), ``CLAUDE.md`` and
+            ``CLAUDE.local.md`` (project). https://code.claude.com/docs/en/memory
 - opencode: ``~/.config/opencode/skills`` (global) and ``.opencode/skills``
             (project). https://opencode.ai/docs/skills/
 - cursor:   skills in ``~/.cursor/skills`` and ``.cursor/skills`` (also reads
@@ -50,8 +53,24 @@ Sources for the shipped entries:
             https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot
 - kiro:     skills in ``~/.kiro/skills`` and ``.kiro/skills``.
             https://kiro.dev/docs/skills/
-            Steering files: ``~/.kiro/steering/*.md`` and ``.kiro/steering/*.md``.
-            https://kiro.dev/docs/steering/
+            Steering (recursive): ``~/.kiro/steering/**/*.md`` and
+            ``.kiro/steering/**/*.md``. https://kiro.dev/docs/steering/
+- gemini:   Gemini CLI context files ``~/.gemini/GEMINI.md`` (user) and
+            ``GEMINI.md`` (project). No SKILL.md roots documented.
+            https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/auto-memory.md
+- cline:    project rules ``.clinerules/**/*.md`` and cross-tool ``AGENTS.md``
+            (covered by codex); global ``~/Documents/Cline/Rules/**/*.md`` and
+            ``~/.agents/AGENTS.md``. https://docs.cline.bot/features/cline-rules
+- roo:      project ``.roo/rules/**/*.md`` with legacy ``.roorules``; global
+            ``~/.roo/rules/**/*.md``; ``AGENTS.md`` covered by codex.
+            https://docs.roocode.com/features/custom-instructions
+
+Rule globs use ``**`` for recursive matching where the vendor documents nested
+rule files (Cursor, Windsurf, Kiro, Roo). Legacy single-file forms
+(``.cursorrules``, ``.windsurfrules``, ``.roorules``) and the cross-tool
+``AGENTS.md`` / ``CLAUDE.md`` / ``GEMINI.md`` instruction files are inventoried
+as standalone rule items. Files a second agent also reads (``AGENTS.md``, the
+shared roots) are attributed once, to the first agent in registry order.
 """
 
 from __future__ import annotations
@@ -83,12 +102,15 @@ AGENTS: dict[str, AgentSpec] = {
             display_name="OpenAI Codex CLI (Agent Skills convention)",
             user_roots=(".agents/skills",),
             project_roots=(".agents/skills",),
+            project_rule_globs=("AGENTS.md",),  # the cross-tool AGENTS.md standard
         ),
         AgentSpec(
             key="claude",
             display_name="Claude Code",
             user_roots=(".claude/skills",),
             project_roots=(".claude/skills",),
+            user_rule_globs=(".claude/CLAUDE.md",),
+            project_rule_globs=("CLAUDE.md", "CLAUDE.local.md"),
         ),
         AgentSpec(
             key="opencode",
@@ -101,7 +123,7 @@ AGENTS: dict[str, AgentSpec] = {
             display_name="Cursor",
             user_roots=(".cursor/skills",),
             project_roots=(".cursor/skills",),
-            project_rule_globs=(".cursor/rules/*.mdc",),
+            project_rule_globs=(".cursor/rules/**/*.mdc", ".cursorrules"),
         ),
         AgentSpec(
             key="antigravity",
@@ -115,7 +137,8 @@ AGENTS: dict[str, AgentSpec] = {
             user_roots=(".codeium/windsurf/skills",),
             project_roots=(".windsurf/skills",),
             user_rule_globs=(".codeium/windsurf/memories/global_rules.md",),
-            project_rule_globs=(".devin/rules/*.md", ".windsurf/rules/*.md"),
+            project_rule_globs=(".devin/rules/**/*.md", ".windsurf/rules/**/*.md",
+                                ".windsurfrules"),
         ),
         AgentSpec(
             key="copilot",
@@ -130,8 +153,34 @@ AGENTS: dict[str, AgentSpec] = {
             display_name="Kiro (AWS)",
             user_roots=(".kiro/skills",),
             project_roots=(".kiro/skills",),
-            user_rule_globs=(".kiro/steering/*.md",),
-            project_rule_globs=(".kiro/steering/*.md",),
+            user_rule_globs=(".kiro/steering/**/*.md",),
+            project_rule_globs=(".kiro/steering/**/*.md",),
+        ),
+        # Instruction-only agents (no SKILL.md roots documented): their standing
+        # instruction files are inventoried through the same rule-glob mechanism.
+        AgentSpec(
+            key="gemini",
+            display_name="Gemini CLI",
+            user_roots=(),
+            project_roots=(),
+            user_rule_globs=(".gemini/GEMINI.md",),
+            project_rule_globs=("GEMINI.md",),
+        ),
+        AgentSpec(
+            key="cline",
+            display_name="Cline",
+            user_roots=(),
+            project_roots=(),
+            user_rule_globs=("Documents/Cline/Rules/**/*.md", ".agents/AGENTS.md"),
+            project_rule_globs=(".clinerules/**/*.md",),
+        ),
+        AgentSpec(
+            key="roo",
+            display_name="Roo Code",
+            user_roots=(),
+            project_roots=(),
+            user_rule_globs=(".roo/rules/**/*.md",),
+            project_rule_globs=(".roo/rules/**/*.md", ".roorules"),
         ),
     )
 }
