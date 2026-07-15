@@ -31,6 +31,10 @@ class DiscoveryLocation:
     # matching the glob under root (e.g. ".cursor/rules/*.mdc") instead of
     # walking root for SKILL.md folders.
     pattern: str | None = None
+    # When set (auto-discovered project roots), a stable, privacy-safe label for
+    # the project the skill lives in (e.g. "dev/klin"), folded into external_id
+    # so two repos' identically-named skills stay distinct across a fleet.
+    project_label: str | None = None
 
 
 def default_locations(home: Path | None = None) -> list[DiscoveryLocation]:
@@ -202,6 +206,10 @@ def build_discovery_report(
         root = loc.root.expanduser()
         if not root.is_dir():
             continue
+        # Provenance prefix for auto-discovered project skills, folded into every
+        # external_id so two repos' same-named skills stay distinct. Redacted in
+        # case a repo directory is itself named like a credential.
+        id_prefix = f"{_redact_meta(loc.project_label)}:" if loc.project_label else ""
         if loc.pattern:
             # Standalone instruction/rule files (Cursor rules, Kiro steering,
             # Copilot instructions, ...): one report item per matching file,
@@ -230,7 +238,7 @@ def build_discovery_report(
                 findings = findings + _sanitization_findings(sanitization)
                 safe_rel = _redact_meta(rel)  # the filename itself may be a secret
                 items.append({
-                    "external_id": f"{loc.source}:{loc.location_kind}:{safe_rel}",
+                    "external_id": f"{loc.source}:{loc.location_kind}:{id_prefix}{safe_rel}",
                     "source": loc.source,
                     "location_kind": loc.location_kind,
                     "relative_path": safe_rel,
@@ -269,7 +277,7 @@ def build_discovery_report(
             rel_dir = _posix(skill.rel_dir)
             safe_rel_dir = _redact_meta(rel_dir)  # a skill dir may be named like a secret
             items.append({
-                "external_id": f"{loc.source}:{loc.location_kind}:{safe_rel_dir}",
+                "external_id": f"{loc.source}:{loc.location_kind}:{id_prefix}{safe_rel_dir}",
                 "source": loc.source,
                 "location_kind": loc.location_kind,
                 "relative_path": f"{safe_rel_dir}/SKILL.md" if safe_rel_dir else "SKILL.md",

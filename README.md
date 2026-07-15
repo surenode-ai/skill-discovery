@@ -35,18 +35,26 @@ pip install .        # from a checkout; Python 3.9+, one dependency (PyYAML)
 skill-discovery --dry-run
 ```
 
-No paths, no config. With no arguments the tool already knows where every
-supported agent stores its skills and instruction files (see the
-[support matrix](#agent-support-matrix)) and checks all of them under your home
-directory. It prints a JSON inventory on stdout and a human readable list of
+No paths, no config. With no arguments the tool scans where every supported
+agent stores skills and instruction files (see the
+[support matrix](#agent-support-matrix)) **and** walks your home directory to
+auto-discover the in-repo (project-level) skills committed inside your repos —
+so both your global skills and your projects' skills are found with no path
+given. It prints a JSON inventory on stdout and a human readable list of
 checked vs found locations (each labeled `skills` or `rules`) on stderr.
 `--dry-run` makes **zero network calls**: nothing leaves your machine, and it
 shows exactly what a report would contain before you deploy anything.
 
-That covers your global (user-level) skills. Two optional flags reach further:
-`--project ~/work/myrepo` also includes a repo's in-repo (project-level)
-skills, which live inside individual repos the tool does not go hunting for on
-its own; `--path <dir>` adds any other folder, such as a mounted team share.
+Auto-discovery is bounded (it prunes caches and build trees, reads directory
+structure not file contents, and has a time budget), so it stays fast enough to
+run on every launch. A few knobs:
+
+- `--no-discover-projects` turns it off (falls back to global skills only).
+- `--discover-root <dir>` (or the `SKILL_DISCOVERY_ROOTS` env var, os-path
+  separated) adds a base for code that lives **outside** your home, e.g.
+  `/workspace` on a managed machine.
+- `--project <dir>` scans one specific repo; `--path <dir>` adds any other
+  folder, such as a mounted team share.
 
 For each skill you get:
 
@@ -99,21 +107,24 @@ The zero-argument run is the normal one — everything else is optional narrowin
 or reaching further:
 
 ```bash
-skill-discovery                                    # scan every known agent, submit
+skill-discovery                                    # global + auto-discovered project skills, submit
 skill-discovery --dry-run                          # same, but print instead of submit
 skill-discovery --loop 900                         # run continuously as a service
 skill-discovery --agent claude --dry-run           # narrow to one agent
-skill-discovery --project ~/work/repo --dry-run    # also include a repo's in-repo skills
-skill-discovery --path ~/team-skills --source team-repo --dry-run   # also scan an extra folder
+skill-discovery --discover-root /workspace --dry-run   # also auto-discover code outside home
+skill-discovery --no-discover-projects --dry-run   # global skills only, no home walk
 ```
 
 Every flag below is optional; with none of them the tool scans all registered
-agents under your home directory.
+agents under your home directory and auto-discovers in-repo project skills.
 
 | Flag | Meaning |
 |---|---|
 | `--agent <key>` (repeatable) | Narrow to specific agents: `claude`, `codex`, `cursor`, `antigravity`, `windsurf`, `opencode`, `copilot`, `kiro`, or `all`. Default with no location flags: every agent |
-| `--project <dir>` (repeatable) | Also scan a repo's in-repo (project-level) skill roots under this directory (scoped by `--agent` if given) |
+| `--no-discover-projects` | Turn off automatic discovery of in-repo project skills under your home directory (on by default) |
+| `--discover-root <dir>` (repeatable) | Additional base to auto-discover project skills under, for code outside home (also via `SKILL_DISCOVERY_ROOTS`, os-path separated) |
+| `--discover-timeout <seconds>` | Wall-clock budget for project discovery per base (default 20); if exceeded, discovery stops and reports what it found |
+| `--project <dir>` (repeatable) | Also scan one specific repo's in-repo skill roots (rarely needed; project skills under home are auto-discovered) |
 | `--path <dir>` (repeatable) | Also scan any extra skill root, e.g. a mounted team share; labeled with `--source` |
 | `--claude` / `--codex` | Deprecated aliases for `--agent claude` / `--agent codex` |
 | `--home <dir>` | Home directory to resolve user skill roots under |
@@ -196,10 +207,18 @@ last successful submission. The traffic property matters at fleet scale: a
 quiet machine sends one heartbeat a day, not one report per pass. A failed
 submission retries on the next pass, Ctrl-C or a supervisor stop exits
 cleanly, and state is in memory only, so after a restart it submits once and
-the server upserts. Run it as the console user, since the skill roots live in
-user homes. `--dry-run --loop` works too, and prints instead of submitting:
-each report is one complete JSON document, so stdout becomes a stream of
-newline separated JSON documents in order.
+the server upserts. `--dry-run --loop` works too, and prints instead of
+submitting: each report is one complete JSON document, so stdout becomes a
+stream of newline separated JSON documents in order.
+
+Two things matter for a fleet rollout. **Run it as the developer** (a per-user
+LaunchAgent, systemd `--user` service, or login item), not as a root daemon:
+it scans and auto-discovers under the running user's home, so a system service
+would inventory the service account's empty home instead of the developer's.
+And if your developers keep code **outside** their home (a shared `/workspace`,
+mounted repos), point discovery there with `SKILL_DISCOVERY_ROOTS` in the
+deployment profile. Each project skill is reported with a per-repo identity, so
+two developers' identically named skills stay distinct on the server.
 
 Service recipes:
 

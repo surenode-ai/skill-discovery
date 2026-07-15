@@ -19,6 +19,7 @@ Server connection resolution (flag > env):
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import ipaddress
 import json
 import os
@@ -31,6 +32,7 @@ from discovery import __version__
 from discovery.agents import AGENTS, agent_keys, project_locations, user_locations
 from discovery.local import DiscoveryLocation, build_discovery_report
 from discovery.loop import DEFAULT_HEARTBEAT_SECONDS, MIN_LOOP_SECONDS, run_loop
+from discovery.projects import DEFAULT_TIME_BUDGET, discover_project_roots, project_label
 
 DEFAULT_URL = "http://127.0.0.1:8000"
 # A hung server must not stall a submission forever: fail the request and let
@@ -142,10 +144,23 @@ def build_parser() -> argparse.ArgumentParser:
                              f"(repeatable; known: {known}, or 'all'). Default "
                              f"when no location flags are given: every agent.")
     parser.add_argument("--project", action="append", metavar="DIR",
-                        help="(optional) Also scan a repo's in-repo (project-level) "
-                             "skill roots under this directory (repeatable). These "
-                             "live inside individual repos, so the tool does not "
-                             "find them on its own.")
+                        help="(optional) Also scan a specific repo's in-repo "
+                             "(project-level) skill roots under this directory "
+                             "(repeatable). Rarely needed: project skills under "
+                             "your home directory are auto-discovered by default.")
+    parser.add_argument("--no-discover-projects", action="store_true",
+                        help="Turn off automatic discovery of in-repo (project-level) "
+                             "skills under your home directory (on by default).")
+    parser.add_argument("--discover-root", action="append", metavar="DIR",
+                        help="Additional base directory to auto-discover project "
+                             "skills under, for code outside your home such as "
+                             "/workspace (repeatable; also via SKILL_DISCOVERY_ROOTS, "
+                             "os-path-separated).")
+    parser.add_argument("--discover-timeout", type=float, default=DEFAULT_TIME_BUDGET,
+                        metavar="SECONDS",
+                        help=f"Wall-clock budget for project discovery per base "
+                             f"(default {DEFAULT_TIME_BUDGET:.0f}). If exceeded, "
+                             f"discovery stops and reports what it found so far.")
     parser.add_argument("--codex", action="store_true",
                         help="(deprecated) Alias for --agent codex.")
     parser.add_argument("--claude", action="store_true",
@@ -203,6 +218,44 @@ def _selected_agent_keys(parser: argparse.ArgumentParser, args) -> list[str]:
     return keys
 
 
+def _discovery_bases(home: Path, args) -> list[Path]:
+    """Bases to auto-discover project skills under: the home directory, plus any
+    extra roots from --discover-root and the SKILL_DISCOVERY_ROOTS env var (for
+    code that lives outside home, e.g. /workspace on a fleet machine)."""
+    bases = [home]
+    for raw in args.discover_root or []:
+        bases.append(Path(raw).expanduser())
+    env = os.environ.get("SKILL_DISCOVERY_ROOTS", "")
+    for raw in env.split(os.pathsep):
+        if raw.strip():
+            bases.append(Path(raw.strip()).expanduser())
+    return bases
+
+
+def _discover_project_locations(proj_keys, home: Path, args) -> list[DiscoveryLocation]:
+    """Walk each discovery base for in-repo skill markers and turn every found
+    project root into project-level locations, tagged with a provenance label so
+    two repos' same-named skills stay distinct. Never raises: discovery is a
+    best-effort convenience, so a walk error must not fail the whole run."""
+    out: list[DiscoveryLocation] = []
+    for base in _discovery_bases(home, args):
+        try:
+            roots, truncated = discover_project_roots(base, time_budget=args.discover_timeout)
+        except OSError:
+            continue
+        if truncated:
+            print(f"skill-discovery: project discovery under {base} hit the "
+                  f"{args.discover_timeout:.0f}s budget; reporting what was found "
+                  f"so far. Narrow with --discover-root or raise --discover-timeout.",
+                  file=sys.stderr)
+        base_str = str(base)
+        for root in roots:
+            label = project_label(root, base_str)
+            for loc in project_locations(proj_keys, Path(root)):
+                out.append(dataclasses.replace(loc, project_label=label))
+    return out
+
+
 def _dedupe_locations(locations: list[DiscoveryLocation]) -> list[DiscoveryLocation]:
     """Drop locations whose (root, pattern) another agent already claimed.
     Several agents document the same shared roots (e.g. .agents/skills);
@@ -254,6 +307,10 @@ def main(argv: list[str] | None = None) -> int:
         locations.extend(project_locations(proj_keys, Path(raw).expanduser()))
     for raw in args.path or []:
         locations.append(DiscoveryLocation(Path(raw).expanduser(), args.source, "custom"))
+
+    if not args.no_discover_projects:
+        locations.extend(_discover_project_locations(proj_keys, home, args))
+
     locations = _dedupe_locations(locations)
 
     if args.dry_run:
