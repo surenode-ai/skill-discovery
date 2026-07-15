@@ -175,6 +175,14 @@ def _privacy_text(text: str, home: Path | None = None) -> str:
     return text
 
 
+def _where_label(loc: DiscoveryLocation) -> str:
+    """Human-facing 'where' for an item: 'global' for user-level locations, or
+    the (unredacted) project label for in-repo ones. Local-view only."""
+    if loc.location_kind.startswith("user_"):
+        return "global"
+    return loc.project_label or "project"
+
+
 def build_discovery_report(
     *,
     locations: list[DiscoveryLocation] | None = None,
@@ -184,8 +192,14 @@ def build_discovery_report(
     user_id: str | None = None,
     agent_version: str = "skill-discovery",
     scanner_backend: str = "auto",
+    include_local: bool = False,
 ) -> dict:
-    """Build a privacy-aware discovery report from local skill roots."""
+    """Build a privacy-aware discovery report from local skill roots.
+
+    With ``include_local``, each item also carries ``_path`` (the real on-disk
+    path) and ``_where`` (unredacted scope/repo) for the local human view. These
+    ``_``-prefixed fields are never part of the wire report: callers pass
+    ``include_local`` only when rendering locally, never when uploading."""
 
     scanner_name = "local"
     try:
@@ -210,6 +224,7 @@ def build_discovery_report(
         # external_id so two repos' same-named skills stay distinct. Redacted in
         # case a repo directory is itself named like a credential.
         id_prefix = f"{_redact_meta(loc.project_label)}:" if loc.project_label else ""
+        where = _where_label(loc)  # local-view scope/repo, unredacted
         if loc.pattern:
             # Standalone instruction/rule files (Cursor rules, Kiro steering,
             # Copilot instructions, ...): one report item per matching file,
@@ -249,6 +264,7 @@ def build_discovery_report(
                     "scanner_version": agent_version,
                     "local_findings": [_finding_json(f) for f in findings],
                     **({"candidate": _redact_candidate(sanitized)} if include_candidate else {}),
+                    **({"_path": str(match), "_where": where} if include_local else {}),
                 })
             continue
         skills, errors = _discover(str(root), str(root))
@@ -276,6 +292,7 @@ def build_discovery_report(
                     pass
             rel_dir = _posix(skill.rel_dir)
             safe_rel_dir = _redact_meta(rel_dir)  # a skill dir may be named like a secret
+            skill_dir = os.path.join(str(root), *skill.rel_dir.split("/")) if skill.rel_dir else str(root)
             items.append({
                 "external_id": f"{loc.source}:{loc.location_kind}:{id_prefix}{safe_rel_dir}",
                 "source": loc.source,
@@ -288,6 +305,8 @@ def build_discovery_report(
                 "scanner_version": agent_version,
                 "local_findings": [_finding_json(f) for f in findings],
                 **({"candidate": _redact_candidate(sanitized)} if include_candidate else {}),
+                **({"_path": os.path.join(skill_dir, "SKILL.md"), "_where": where}
+                   if include_local else {}),
             })
         for err in errors:
             safe_err = _privacy_text(err, root)

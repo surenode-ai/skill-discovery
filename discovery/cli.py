@@ -185,9 +185,21 @@ def build_parser() -> argparse.ArgumentParser:
                              "installed and always keeps the built-in heuristic floor.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print the report but do not submit it (needs no server).")
+    parser.add_argument("--format", choices=["human", "json"], default=None,
+                        help="Output format for --dry-run. Default: human when stdout "
+                             "is a terminal, json when piped or redirected.")
+    parser.add_argument("--json", action="store_const", const="json", dest="format",
+                        help="Shorthand for --format json.")
+    parser.add_argument("--no-color", action="store_true",
+                        help="Disable ANSI color (also honored via the NO_COLOR env var).")
     parser.add_argument("-v", "--verbose", action="store_true",
-                        help="With --dry-run, list every checked location including "
-                             "empty ones (default: only locations that held skills/rules).")
+                        help="In the human view, show each item's full path and list "
+                             "every location checked, including the empty ones.")
+    parser.add_argument("--findings", action="store_true",
+                        help="Human view: show only items that have findings (triage).")
+    parser.add_argument("--fail-on", choices=["none", "findings", "high"], default="none",
+                        help="Exit non-zero if findings (or high+ findings) exist, for "
+                             "CI gating. Default: none (findings are not errors).")
     parser.add_argument("--print-json", action="store_true",
                         help="Print the report JSON before submitting.")
     parser.add_argument("--loop", type=float, metavar="SECONDS", default=None,
@@ -276,36 +288,98 @@ def _dedupe_locations(locations: list[DiscoveryLocation]) -> list[DiscoveryLocat
     return out
 
 
+# ---- output format & color resolution ----
+
+def _resolve_format(args) -> str:
+    """human when stdout is a terminal, json when piped/redirected; --format
+    (or --json) always overrides."""
+    if args.format:
+        return args.format
+    return "human" if sys.stdout.isatty() else "json"
+
+
+def _color_enabled(args) -> bool:
+    if args.no_color or os.environ.get("NO_COLOR"):
+        return False
+    return sys.stdout.isatty()
+
+
+_ANSI = {"reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m",
+         "red": "\033[31m", "yellow": "\033[33m"}
+
+
+def _style(text: str, on: bool, *styles: str) -> str:
+    if not on or not styles:
+        return text
+    return "".join(_ANSI[s] for s in styles) + text + _ANSI["reset"]
+
+
+def _sev_styles(severity: str) -> tuple[str, ...]:
+    s = (severity or "").lower()
+    if s in ("critical", "high"):
+        return ("red",)
+    if s == "medium":
+        return ("yellow",)
+    return ("dim",)
+
+
+# ---- human view ----
+
 def _clip(text: object, width: int) -> str:
     """Collapse whitespace and truncate to width with an ellipsis."""
     text = " ".join(str(text or "").split())
     return text if len(text) <= width else text[: max(1, width - 1)] + "…"
 
 
-def _print_item_table(items: list[dict]) -> None:
-    """Tabulate the found skills/instruction files on stderr: name, description,
-    and which agent they belong to. Description flexes to the terminal width."""
-    name_w = max(len("NAME"), min(max((len(i.get("name") or "") for i in items), default=4), 28))
-    src_w = max(len("SOURCE"), min(max((len(i.get("source") or "") for i in items), default=6), 16))
-    width = shutil.get_terminal_size((100, 20)).columns
-    desc_w = max(20, width - name_w - src_w - 6)
-
-    def line(name: object, desc: object, src: object) -> str:
-        return (f"  {_clip(name, name_w):<{name_w}}  "
-                f"{_clip(desc, desc_w):<{desc_w}}  {_clip(src, src_w)}")
-
-    print(line("NAME", "DESCRIPTION", "SOURCE"), file=sys.stderr)
-    print(f"  {'-' * name_w}  {'-' * desc_w}  {'-' * src_w}", file=sys.stderr)
-    for item in items:
-        print(line(item.get("name"), item.get("description"), item.get("source")),
-              file=sys.stderr)
+def _col_width(values, header: str, cap: int) -> int:
+    return max(len(header), min(max((len(v) for v in values), default=len(header)), cap))
 
 
-def _print_checked_locations(locations: list[DiscoveryLocation]) -> None:
+def _shorten_home(path: str) -> str:
+    home = os.path.expanduser("~")
+    return "~" + path[len(home):] if home != "~" and path.startswith(home) else path
+
+
+def _where_of(item: dict) -> str:
+    return item.get("_where") or ("global" if item["location_kind"].startswith("user_")
+                                  else "project")
+
+
+def _print_findings_table(findings, width, color, out) -> None:
+    sev_w = _col_width([f["severity"] for _, f in findings], "severity", 10)
+    item_w = _col_width([it["name"] for it, _ in findings], "item", 22)
+    cat_w = _col_width([f["category"] for _, f in findings], "category", 22)
+    detail_w = max(16, width - sev_w - item_w - cat_w - 8)
+    header = (f"  {'severity':<{sev_w}}  {'item':<{item_w}}  "
+              f"{'category':<{cat_w}}  detail")
+    print(_style(header, color, "dim"), file=out)
+    for it, f in findings:
+        sev = _style(f"{_clip(f['severity'], sev_w):<{sev_w}}", color, *_sev_styles(f["severity"]))
+        print(f"  {sev}  {_clip(it['name'], item_w):<{item_w}}  "
+              f"{_clip(f['category'], cat_w):<{cat_w}}  {_clip(f['title'], detail_w)}", file=out)
+
+
+def _print_item_table(first: str, items, width, color, verbose, out) -> None:
+    name_w = _col_width([i["name"] for i in items], first, 28)
+    agent_w = _col_width([i["source"] for i in items], "agent", 12)
+    where_w = _col_width([_where_of(i) for i in items], "where", 22)
+    desc_w = max(16, width - name_w - agent_w - where_w - 8)
+    header = (f"  {first:<{name_w}}  {'agent':<{agent_w}}  "
+              f"{'where':<{where_w}}  description")
+    print(_style(header, color, "dim"), file=out)
+    for i in items:
+        print(f"  {_clip(i['name'], name_w):<{name_w}}  "
+              f"{_clip(i['source'], agent_w):<{agent_w}}  "
+              f"{_clip(_where_of(i), where_w):<{where_w}}  "
+              f"{_clip(i.get('description') or '—', desc_w)}", file=out)
+        if verbose and i.get("_path"):
+            print(_style(f"    {_shorten_home(i['_path'])}", color, "dim"), file=out)
+
+
+def _print_checked_locations(locations, out) -> None:
     """The full checked-vs-not-present location list (``--verbose``); confirms
-    the tool looked where you expected, distinguishing skill roots from rule
-    globs."""
-    print("Checked locations:", file=sys.stderr)
+    the tool looked where you expected."""
+    print("Locations checked:", file=out)
     for loc in locations:
         root = loc.root.expanduser()
         if loc.pattern:
@@ -316,28 +390,66 @@ def _print_checked_locations(locations: list[DiscoveryLocation]) -> None:
             found = root.is_dir()
             what = str(root)
             label = "skills"
-        status = "found" if found else "not present"
-        print(f"  [{status:>11}] {label} {loc.source}:{loc.location_kind}  {what}",
-              file=sys.stderr)
+        print(f"  [{('found' if found else 'not present'):>11}] {label} "
+              f"{loc.source}:{loc.location_kind}  {what}", file=out)
 
 
-def _print_dry_run_summary(report: dict, locations: list[DiscoveryLocation],
-                           *, verbose: bool = False) -> None:
-    """Human summary on stderr (stdout stays pure JSON for piping): a table of
-    what was actually found, and, with ``--verbose``, the full list of every
-    location checked including the empty ones."""
+def _render_human(report: dict, locations, args, out=None) -> None:
+    """The developer-facing view on stdout: a headline, then tables of findings,
+    skills, and instruction files. --verbose adds each item's path and the full
+    location list; --findings shows only flagged items."""
+    out = out or sys.stdout
+    color = _color_enabled(args)
+    width = shutil.get_terminal_size((100, 20)).columns
     items = report.get("items", [])
-    checked = len(locations)
-    if items:
-        print(f"Found {len(items)} skill(s) and instruction file(s) "
-              f"({checked} locations checked):\n", file=sys.stderr)
-        _print_item_table(items)
-    else:
-        print(f"No skills or instruction files found ({checked} locations checked).",
-              file=sys.stderr)
-    if verbose:
-        print(file=sys.stderr)
-        _print_checked_locations(locations)
+    findings = [(it, f) for it in items for f in it.get("local_findings", [])]
+    agents = len({it["source"] for it in items})
+    device = report.get("device_name") or "this machine"
+
+    print(_style("skill-discovery", color, "bold") + _style(f" · {device}", color, "dim"),
+          file=out)
+    print(_style(f"{len(items)} items · {agents} agents · {len(locations)} locations "
+                 f"scanned · {len(findings)} findings", color, "dim"), file=out)
+
+    if findings:
+        print(f"\n{_style('Findings', color, 'bold')}", file=out)
+        _print_findings_table(findings, width, color, out)
+
+    if args.findings:  # triage mode: findings only, skip the inventory
+        return
+
+    skills = [it for it in items if not it["location_kind"].endswith("_rules")]
+    rules = [it for it in items if it["location_kind"].endswith("_rules")]
+    if skills:
+        print(f"\n{_style(f'Skills ({len(skills)})', color, 'bold')}", file=out)
+        _print_item_table("name", skills, width, color, args.verbose, out)
+    if rules:
+        print(f"\n{_style(f'Instruction files ({len(rules)})', color, 'bold')}", file=out)
+        _print_item_table("file", rules, width, color, args.verbose, out)
+    if not items:
+        print(_style(f"No skills or instruction files found "
+                     f"({len(locations)} locations scanned).", color, "dim"), file=out)
+
+    print(f"\n{_style('run --json for the full report · -v for paths and every '
+                      'location scanned', color, 'dim')}", file=out)
+    if args.verbose:
+        print(file=out)
+        _print_checked_locations(locations, out)
+
+
+def _exit_code(report: dict, args) -> int:
+    """0 by default (findings are not errors); --fail-on gates CI runs."""
+    if args.fail_on == "none":
+        return 0
+    rank = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+    worst = max((rank.get(str(f.get("severity", "")).lower(), 2)
+                 for it in report.get("items", []) for f in it.get("local_findings", [])),
+                default=-1)
+    if args.fail_on == "findings" and worst >= 0:
+        return 1
+    if args.fail_on == "high" and worst >= rank["high"]:
+        return 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -361,7 +473,7 @@ def main(argv: list[str] | None = None) -> int:
 
     locations = _dedupe_locations(locations)
 
-    def _build() -> dict:
+    def _build(include_local: bool = False) -> dict:
         return build_discovery_report(
             locations=locations or None,
             upload_mode=args.upload_mode,
@@ -370,6 +482,7 @@ def main(argv: list[str] | None = None) -> int:
             user_id=args.user_id,
             agent_version=args.agent_version,
             scanner_backend=args.scanner_backend,
+            include_local=include_local,
         )
 
     if args.loop is not None:
@@ -394,14 +507,20 @@ def main(argv: list[str] | None = None) -> int:
 
     # Validate the URL before the scan, so a refused scheme fails fast.
     url = None if args.dry_run else _require_safe_url(parser, args)
-    report = _build()
-    if args.dry_run:
-        _print_dry_run_summary(report, locations, verbose=args.verbose)
-    if args.print_json or args.dry_run:
-        print(json.dumps(report, indent=2))
-    if args.dry_run:
-        return 0
+    fmt = _resolve_format(args)
 
+    if args.dry_run:
+        # Local-only path/where fields feed the human view; never the wire report.
+        report = _build(include_local=(fmt == "human"))
+        if fmt == "json":
+            print(json.dumps(report, indent=2))
+        else:
+            _render_human(report, locations, args)
+        return _exit_code(report, args)
+
+    report = _build()
+    if args.print_json:
+        print(json.dumps(report, indent=2))
     res = _post(f"{url.rstrip('/')}/discovery/reports", report, _resolve_token(args))
     # A malicious or buggy server can return anything; don't index blindly.
     res = res if isinstance(res, dict) else {}
@@ -410,7 +529,7 @@ def main(argv: list[str] | None = None) -> int:
         f"Reported {accepted} discovered skill(s): "
         f"{res.get('flagged', 0)} flagged, {res.get('blocked', 0)} blocked."
     )
-    return 0
+    return _exit_code(report, args)
 
 
 def run() -> None:

@@ -131,32 +131,59 @@ def test_cli_project_scanning(tmp_path, capsys, monkeypatch):
     assert all(k.startswith("project_") for k in kinds)
 
 
-def test_cli_dry_run_shows_found_items_as_table(tmp_path, capsys, monkeypatch):
+def _skill_home(tmp_path, name="deploy", desc="Roll out with checks.", body="Steps."):
     home = tmp_path / "home"
-    (home / ".claude" / "skills" / "deploy").mkdir(parents=True)
-    (home / ".claude" / "skills" / "deploy" / "SKILL.md").write_text(
-        skill_md("deploy", "Roll out with checks.", "Steps."), encoding="utf-8")
-    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
-    rc = main(["--home", str(home), "--device-id", "dev", "--dry-run"])
-    assert rc == 0
-    captured = capsys.readouterr()
-    json.loads(captured.out)  # stdout stays pure JSON
-    assert "NAME" in captured.err and "DESCRIPTION" in captured.err  # table header
-    assert "deploy" in captured.err
-    assert "Roll out" in captured.err                 # the description column
-    assert "[not present]" not in captured.err        # no noisy location list by default
+    (home / ".claude" / "skills" / name).mkdir(parents=True)
+    (home / ".claude" / "skills" / name / "SKILL.md").write_text(
+        skill_md(name, desc, body), encoding="utf-8")
+    return home
 
 
-def test_cli_dry_run_verbose_lists_all_roots(tmp_path, capsys, monkeypatch):
-    home = tmp_path / "home"
-    (home / ".claude" / "skills").mkdir(parents=True)
+def test_cli_dry_run_defaults_to_json_when_piped(tmp_path, capsys, monkeypatch):
+    # capsys' stdout is not a TTY, so the default format is json.
+    home = _skill_home(tmp_path)
     monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
-    rc = main(["--home", str(home), "--dry-run", "--verbose"])
-    assert rc == 0
-    err = capsys.readouterr().err
-    assert "Checked locations:" in err
-    assert "[not present]" in err          # empties shown with --verbose
-    assert "[      found] skills" in err
+    assert main(["--home", str(home), "--dry-run"]) == 0
+    doc = json.loads(capsys.readouterr().out)  # pure JSON on stdout
+    item = doc["items"][0]
+    assert item["name"] == "deploy"
+    assert "_path" not in item and "_where" not in item  # wire report has no local fields
+
+
+def test_cli_human_view_renders_labeled_tables(tmp_path, capsys, monkeypatch):
+    home = _skill_home(tmp_path)
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    assert main(["--home", str(home), "--dry-run", "--format", "human"]) == 0
+    out = capsys.readouterr().out
+    assert "skill-discovery" in out                              # headline
+    assert "Skills (1)" in out                                   # section title + count
+    for header in ("name", "agent", "where", "description"):     # column headers present
+        assert header in out
+    assert "deploy" in out and "Roll out" in out
+    assert "global" in out                                       # where column, user-level
+    assert "\033" not in out                                     # no ANSI when not a TTY
+
+
+def test_cli_human_view_verbose_shows_paths_and_locations(tmp_path, capsys, monkeypatch):
+    home = _skill_home(tmp_path)
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    assert main(["--home", str(home), "--dry-run", "--format", "human", "-v"]) == 0
+    out = capsys.readouterr().out
+    assert "deploy/SKILL.md" in out          # the item's full path sub-line
+    assert "Locations checked:" in out
+    assert "[not present]" in out            # empties shown with --verbose
+
+
+def test_cli_fail_on_findings_sets_exit_code(tmp_path, capsys):
+    # A skill that trips the heuristic floor (env dump) produces a finding.
+    home = tmp_path / "home"
+    (home / ".claude" / "skills" / "bad").mkdir(parents=True)
+    (home / ".claude" / "skills" / "bad" / "SKILL.md").write_text(
+        skill_md("bad", "Demo", "Run:\n\n```bash\nprintenv | base64\n```\n"), encoding="utf-8")
+    base = ["--home", str(home), "--dry-run", "--json", "--scanner-backend", "heuristics"]
+    assert main(base) == 0                                   # findings are not errors by default
+    capsys.readouterr()
+    assert main(base + ["--fail-on", "findings"]) == 1       # opt-in CI gate trips
 
 
 # ---- OS-agnostic identity: posix separators no matter what the walker returns ----

@@ -40,10 +40,14 @@ agent stores skills and instruction files (see the
 [support matrix](#agent-support-matrix)) **and** walks your home directory to
 auto discover the in repo (project level) skills committed inside your repos,
 so both your global skills and your projects' skills are found with no path
-given. It prints a JSON inventory on stdout and, on stderr, a table of the
-skills and instruction files it found (name, description, and which agent), with
-a count of how many locations were checked. Pass `--verbose` to also list every
-location checked, including the empty ones.
+given.
+
+Output adapts to who's asking. At a terminal you get a readable summary:
+findings first, then tables of skills and instruction files (name, agent,
+where, description). Piped or redirected, you get the JSON report instead — so
+`skill-discovery --dry-run | jq …` just works. Force either with `--format
+human|json` (or `--json`). `-v` adds each item's full path and the complete
+list of locations checked; `--fail-on findings` makes it a CI gate.
 `--dry-run` makes **zero network calls**: nothing leaves your machine, and it
 shows exactly what a report would contain before you deploy anything.
 
@@ -140,8 +144,13 @@ agents under your home directory and auto discovers in repo project skills.
 | `--scanner-backend` | `auto` (default), `heuristics`, `skillspector`, `none` |
 | `--loop <seconds>` | Continuous mode: rescan on this interval (minimum 60) and report only when the inventory changes. Without it, one shot as always |
 | `--heartbeat <seconds>` | With `--loop`: report even without change once this long has passed since the last successful submission (default 86400, i.e. daily; 0 reports every pass) |
-| `--dry-run` | Print the report, contact no server |
-| `-v`, `--verbose` | With `--dry-run`, list every checked location, not just the ones that held skills/rules |
+| `--dry-run` | Produce the report locally, contact no server |
+| `--format human\|json` | Output format for `--dry-run` (default: human at a terminal, json when piped) |
+| `--json` | Shorthand for `--format json` |
+| `--no-color` | Disable ANSI color (also honors the `NO_COLOR` env var) |
+| `-v`, `--verbose` | Human view: show each item's full path and list every location checked |
+| `--findings` | Human view: show only items that have findings |
+| `--fail-on none\|findings\|high` | Exit non-zero if findings (or high+ findings) exist, for CI gating (default `none`) |
 | `--print-json` | Print the report before submitting |
 | `--url`, `--token` | Server base URL and bearer token (see environment below) |
 | `--allow-http` | Permit plaintext `http://` to a non-loopback server. Otherwise refused, since the report and token would go unencrypted; loopback is always allowed |
