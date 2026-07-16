@@ -189,6 +189,31 @@ def test_cli_human_view_wraps_by_default(tmp_path, capsys, monkeypatch):
     assert wrapped.count("alpha") > dense.count("alpha")  # default shows more
 
 
+def test_cli_no_server_shows_inventory_without_submitting(tmp_path, capsys, monkeypatch):
+    # No --dry-run and no server configured: show the inventory locally, never POST.
+    home = _skill_home(tmp_path)
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    monkeypatch.setattr("discovery.cli._post",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not submit")))
+    rc = main(["--home", str(home), "--json"])   # no --dry-run, no --url
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["items"][0]["name"] == "deploy"
+
+
+def test_cli_submit_error_is_reported_not_fatal(tmp_path, capsys, monkeypatch):
+    import urllib.error
+    home = _skill_home(tmp_path)
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+
+    def fail(url, body, token=None):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr("discovery.cli._post", fail)
+    rc = main(["--home", str(home), "--url", "https://reports.example.com"])
+    assert rc == 1                                   # clean failure, not a traceback
+    assert "could not submit" in capsys.readouterr().err
+
+
 def test_cli_fail_on_findings_sets_exit_code(tmp_path, capsys):
     # A skill that trips the heuristic floor (env dump) produces a finding.
     home = tmp_path / "home"

@@ -158,9 +158,11 @@ agents under your home directory and auto discovers in repo project skills.
 
 ## Reporting to a governance server (fleet use)
 
-The same command, pointed at a server implementing the open
-`POST /discovery/reports` contract, turns local inventory into fleet
-visibility:
+Submission is opt-in: with no server configured, `skill-discovery` just prints
+the inventory (as above) and never posts anywhere. Point it at a server (via
+`--url` or `SKILL_DISCOVERY_SERVER_URL`) implementing the open
+`POST /discovery/reports` contract, and the same command turns local inventory
+into fleet visibility:
 
 ```bash
 export SKILL_DISCOVERY_SERVER_URL=https://governance.example.com

@@ -26,6 +26,7 @@ import os
 import shutil
 import sys
 import textwrap
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -73,6 +74,14 @@ def _resolve_url(args) -> str:
         or os.environ.get("KILN_SERVER_URL")
         or DEFAULT_URL
     )
+
+
+def _server_configured(args) -> bool:
+    """Whether a submission destination was actually set (flag or env). If not,
+    the tool shows the inventory locally instead of POSTing to the default."""
+    return bool(args.url
+                or os.environ.get("SKILL_DISCOVERY_SERVER_URL")
+                or os.environ.get("KILN_SERVER_URL"))
 
 
 def _is_loopback(host: str) -> bool:
@@ -516,11 +525,16 @@ def main(argv: list[str] | None = None) -> int:
             include_local=include_local,
         )
 
+    fmt = _resolve_format(args)
+
     if args.loop is not None:
         if args.loop < MIN_LOOP_SECONDS:
             parser.error(f"--loop must be at least {MIN_LOOP_SECONDS:.0f} seconds")
         if args.heartbeat < 0:
             parser.error("--heartbeat must be 0 or positive")
+        if not args.dry_run and not _server_configured(args):
+            parser.error("--loop submits continuously and needs a server: set --url or "
+                         "SKILL_DISCOVERY_SERVER_URL, or add --dry-run to print instead.")
         # Dry-run loops never submit, so the URL scheme doesn't matter there.
         url = _resolve_url(args) if args.dry_run else _require_safe_url(parser, args)
         token = _resolve_token(args)
@@ -536,23 +550,33 @@ def main(argv: list[str] | None = None) -> int:
             print_json=args.print_json,
         )
 
-    # Validate the URL before the scan, so a refused scheme fails fast.
-    url = None if args.dry_run else _require_safe_url(parser, args)
-    fmt = _resolve_format(args)
-
-    if args.dry_run:
-        # Local-only path/where fields feed the human view; never the wire report.
+    # Submit only when a server is actually configured; otherwise (and for
+    # --dry-run) just show the inventory locally. This makes a bare
+    # `skill-discovery` do the useful, safe thing instead of POSTing to a
+    # guessed localhost.
+    if args.dry_run or not _server_configured(args):
         report = _build(include_local=(fmt == "human"))
         if fmt == "json":
             print(json.dumps(report, indent=2))
         else:
             _render_human(report, locations, args)
+        if not args.dry_run:  # ran with no server configured: say why it didn't submit
+            print(_style("No server configured, so nothing was submitted. Point --url "
+                         "(or SKILL_DISCOVERY_SERVER_URL) at a governance server to report.",
+                         _color_enabled(args), "dim"), file=sys.stderr)
         return _exit_code(report, args)
 
+    url = _require_safe_url(parser, args)  # validate scheme before the scan
     report = _build()
     if args.print_json:
         print(json.dumps(report, indent=2))
-    res = _post(f"{url.rstrip('/')}/discovery/reports", report, _resolve_token(args))
+    try:
+        res = _post(f"{url.rstrip('/')}/discovery/reports", report, _resolve_token(args))
+    except (urllib.error.URLError, OSError) as exc:
+        # Connection refused, timeout, 404/500, TLS error, ...: report cleanly.
+        print(f"skill-discovery: could not submit to {url}: "
+              f"{getattr(exc, 'reason', exc)}", file=sys.stderr)
+        return 1
     # A malicious or buggy server can return anything; don't index blindly.
     res = res if isinstance(res, dict) else {}
     accepted = res.get("accepted", len(report["items"]))
