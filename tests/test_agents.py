@@ -161,6 +161,7 @@ def test_cli_human_view_renders_labeled_tables(tmp_path, capsys, monkeypatch):
         assert header in out
     assert "deploy" in out and "Roll out" in out
     assert "global" in out                                       # where column, user-level
+    assert "✓ No findings" in out                                # clean-state signal
     assert "\033" not in out                                     # no ANSI when not a TTY
 
 

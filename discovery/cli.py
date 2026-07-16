@@ -318,7 +318,7 @@ def _color_enabled(args) -> bool:
 
 
 _ANSI = {"reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m",
-         "red": "\033[31m", "yellow": "\033[33m"}
+         "red": "\033[31m", "yellow": "\033[33m", "green": "\033[32m"}
 
 
 def _style(text: str, on: bool, *styles: str) -> str:
@@ -375,25 +375,34 @@ def _shorten_home(path: str) -> str:
 
 
 def _where_of(item: dict) -> str:
-    return item.get("_where") or ("global" if item["location_kind"].startswith("user_")
-                                  else "project")
+    """Display value for the 'where' column: 'global' for user-level items, or
+    the repo's basename for project items (the last path segment — the part that
+    actually distinguishes repos; the full path is in -v / the JSON)."""
+    w = item.get("_where") or ("global" if item["location_kind"].startswith("user_")
+                               else "project")
+    if w in ("global", "project"):
+        return w
+    return w.replace("\\", "/").rstrip("/").split("/")[-1] or w
 
 
 def _print_findings_table(findings, width, color, out, wrap=True) -> None:
     # Most severe first; wrap the detail by default (a truncated finding is
-    # useless, and there are rarely many).
+    # useless, and there are rarely many). A colored dot per severity gives a
+    # scannable left rail beyond the color of the label itself.
     findings = sorted(findings, key=lambda p: _sev_rank(p[1]["severity"]), reverse=True)
     sev_w = _col_width([f["severity"] for _, f in findings], "severity", 10)
     item_w = _col_width([it["name"] for it, _ in findings], "item", 22)
     cat_w = _col_width([f["category"] for _, f in findings], "category", 24)
-    detail_w = max(24, width - sev_w - item_w - cat_w - 8)
-    indent = 2 + sev_w + 2 + item_w + 2 + cat_w + 2
-    header = (f"  {'severity':<{sev_w}}  {'item':<{item_w}}  "
+    indent = 2 + 2 + sev_w + 2 + item_w + 2 + cat_w + 2  # 2 extra for the "● " dot slot
+    detail_w = max(24, width - indent)
+    header = (f"    {'severity':<{sev_w}}  {'item':<{item_w}}  "
               f"{'category':<{cat_w}}  detail")
     print(_style(header, color, "dim"), file=out)
     for it, f in findings:
-        sev = _style(f"{_clip(f['severity'], sev_w):<{sev_w}}", color, *_sev_styles(f["severity"]))
-        prefix = (f"  {sev}  {_clip(it['name'], item_w):<{item_w}}  "
+        styles = _sev_styles(f["severity"])
+        dot = _style("●", color, *styles)
+        sev = _style(f"{_clip(f['severity'], sev_w):<{sev_w}}", color, *styles)
+        prefix = (f"  {dot} {sev}  {_clip(it['name'], item_w):<{item_w}}  "
                   f"{_clip(f['category'], cat_w):<{cat_w}}  ")
         _emit_row(out, prefix, indent, f["title"], detail_w, wrap=wrap)
 
@@ -408,8 +417,8 @@ def _print_item_table(first: str, items, width, color, verbose, wrap, out) -> No
               f"{'where':<{where_w}}  description")
     print(_style(header, color, "dim"), file=out)
     for i in items:
-        prefix = (f"  {_clip(i['name'], name_w):<{name_w}}  "
-                  f"{_clip(i['source'], agent_w):<{agent_w}}  "
+        name = _style(f"{_clip(i['name'], name_w):<{name_w}}", color, "bold")  # name pops
+        prefix = (f"  {name}  {_clip(i['source'], agent_w):<{agent_w}}  "
                   f"{_clip(_where_of(i), where_w):<{where_w}}  ")
         _emit_row(out, prefix, indent, i.get("description") or "—", desc_w, wrap=wrap)
         if verbose and i.get("_path"):
@@ -444,23 +453,30 @@ def _render_human(report: dict, locations, args, out=None) -> None:
     width = shutil.get_terminal_size((100, 20)).columns
     items = report.get("items", [])
     findings = [(it, f) for it in items for f in it.get("local_findings", [])]
+    skills = [it for it in items if not it["location_kind"].endswith("_rules")]
+    rules = [it for it in items if it["location_kind"].endswith("_rules")]
     agents = len({it["source"] for it in items})
     device = report.get("device_name") or "this machine"
 
     print(_style("skill-discovery", color, "bold") + _style(f" · {device}", color, "dim"),
           file=out)
-    print(_style(f"{len(items)} items · {agents} agents · {len(locations)} locations "
-                 f"scanned · {len(findings)} findings", color, "dim"), file=out)
+    counts = (f"{len(skills)} skills · {len(rules)} instruction files · {agents} agents · "
+              f"{len(locations):,} locations scanned")
+    line = _style(counts, color, "dim")
+    if findings:
+        worst = max((f["severity"] for _, f in findings), key=_sev_rank)
+        line += _style(f" · {len(findings)} findings", color, *_sev_styles(worst))
+    print(line, file=out)
 
     if findings:
         print(f"\n{_style('Findings', color, 'bold')}", file=out)
         _print_findings_table(findings, width, color, out, wrap)
+    else:
+        print(f"\n{_style('✓ No findings', color, 'green')}", file=out)
 
     if args.findings:  # triage mode: findings only, skip the inventory
         return
 
-    skills = [it for it in items if not it["location_kind"].endswith("_rules")]
-    rules = [it for it in items if it["location_kind"].endswith("_rules")]
     if skills:
         print(f"\n{_style(f'Skills ({len(skills)})', color, 'bold')}", file=out)
         _print_item_table("name", skills, width, color, args.verbose, wrap, out)

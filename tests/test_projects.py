@@ -197,6 +197,16 @@ def test_gemini_user_memory_file(tmp_path, capsys, monkeypatch):
     assert "gemini:user_gemini_rules:.gemini/GEMINI.md" in ids
 
 
+def test_where_column_shows_repo_basename(tmp_path, capsys, monkeypatch):
+    home = tmp_path / "home"
+    _skill(home / "dev" / "deep" / "myrepo" / ".claude" / "skills")
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    assert main(["--home", str(home), "--dry-run", "--format", "human"]) == 0
+    out = capsys.readouterr().out
+    assert "myrepo" in out                    # 'where' shows the repo basename
+    assert "dev/deep/myrepo" not in out       # not the full front-truncated path
+
+
 def test_roo_legacy_rules_file(tmp_path, capsys, monkeypatch):
     proj = tmp_path / "repo"
     proj.mkdir()
