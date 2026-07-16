@@ -150,7 +150,7 @@ agents under your home directory and auto discovers in repo project skills.
 | `--no-color` | Disable ANSI color (also honors the `NO_COLOR` env var) |
 | `-v`, `--verbose` | Human view: show each item's full path and list every location checked |
 | `--findings` | Human view: show only items that have findings |
-| `--wrap` | Human view: wrap the skill/instruction description instead of truncating (findings always show full text) |
+| `--no-wrap` | Human view: truncate long descriptions and finding details to one line each (denser output; default wraps) |
 | `--fail-on none\|findings\|high` | Exit non-zero if findings (or high+ findings) exist, for CI gating (default `none`) |
 | `--print-json` | Print the report before submitting |
 | `--url`, `--token` | Server base URL and bearer token (see environment below) |

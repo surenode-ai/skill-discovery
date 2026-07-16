@@ -198,9 +198,9 @@ def build_parser() -> argparse.ArgumentParser:
                              "every location checked, including the empty ones.")
     parser.add_argument("--findings", action="store_true",
                         help="Human view: show only items that have findings (triage).")
-    parser.add_argument("--wrap", action="store_true",
-                        help="Human view: wrap the skill/instruction description column "
-                             "instead of truncating it (findings always show full text).")
+    parser.add_argument("--no-wrap", action="store_true",
+                        help="Human view: truncate long descriptions and finding details "
+                             "to one line each instead of wrapping them (denser output).")
     parser.add_argument("--fail-on", choices=["none", "findings", "high"], default="none",
                         help="Exit non-zero if findings (or high+ findings) exist, for "
                              "CI gating. Default: none (findings are not errors).")
@@ -370,9 +370,9 @@ def _where_of(item: dict) -> str:
                                   else "project")
 
 
-def _print_findings_table(findings, width, color, out) -> None:
-    # Most severe first, and always wrap the detail: a truncated finding is
-    # useless, and there are rarely many.
+def _print_findings_table(findings, width, color, out, wrap=True) -> None:
+    # Most severe first; wrap the detail by default (a truncated finding is
+    # useless, and there are rarely many).
     findings = sorted(findings, key=lambda p: _sev_rank(p[1]["severity"]), reverse=True)
     sev_w = _col_width([f["severity"] for _, f in findings], "severity", 10)
     item_w = _col_width([it["name"] for it, _ in findings], "item", 22)
@@ -386,7 +386,7 @@ def _print_findings_table(findings, width, color, out) -> None:
         sev = _style(f"{_clip(f['severity'], sev_w):<{sev_w}}", color, *_sev_styles(f["severity"]))
         prefix = (f"  {sev}  {_clip(it['name'], item_w):<{item_w}}  "
                   f"{_clip(f['category'], cat_w):<{cat_w}}  ")
-        _emit_row(out, prefix, indent, f["title"], detail_w, wrap=True)
+        _emit_row(out, prefix, indent, f["title"], detail_w, wrap=wrap)
 
 
 def _print_item_table(first: str, items, width, color, verbose, wrap, out) -> None:
@@ -431,6 +431,7 @@ def _render_human(report: dict, locations, args, out=None) -> None:
     location list; --findings shows only flagged items."""
     out = out or sys.stdout
     color = _color_enabled(args)
+    wrap = not args.no_wrap
     width = shutil.get_terminal_size((100, 20)).columns
     items = report.get("items", [])
     findings = [(it, f) for it in items for f in it.get("local_findings", [])]
@@ -444,7 +445,7 @@ def _render_human(report: dict, locations, args, out=None) -> None:
 
     if findings:
         print(f"\n{_style('Findings', color, 'bold')}", file=out)
-        _print_findings_table(findings, width, color, out)
+        _print_findings_table(findings, width, color, out, wrap)
 
     if args.findings:  # triage mode: findings only, skip the inventory
         return
@@ -453,10 +454,10 @@ def _render_human(report: dict, locations, args, out=None) -> None:
     rules = [it for it in items if it["location_kind"].endswith("_rules")]
     if skills:
         print(f"\n{_style(f'Skills ({len(skills)})', color, 'bold')}", file=out)
-        _print_item_table("name", skills, width, color, args.verbose, args.wrap, out)
+        _print_item_table("name", skills, width, color, args.verbose, wrap, out)
     if rules:
         print(f"\n{_style(f'Instruction files ({len(rules)})', color, 'bold')}", file=out)
-        _print_item_table("file", rules, width, color, args.verbose, args.wrap, out)
+        _print_item_table("file", rules, width, color, args.verbose, wrap, out)
     if not items:
         print(_style(f"No skills or instruction files found "
                      f"({len(locations)} locations scanned).", color, "dim"), file=out)
