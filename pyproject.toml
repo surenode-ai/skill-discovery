@@ -25,6 +25,11 @@ dependencies = [
     "PyYAML>=5.4",
 ]
 
+[project.urls]
+Homepage = "https://github.com/surenode-ai/skill-discovery"
+Repository = "https://github.com/surenode-ai/skill-discovery"
+Issues = "https://github.com/surenode-ai/skill-discovery/issues"
+
 [project.scripts]
 skill-discovery = "discovery.cli:run"
 
