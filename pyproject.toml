@@ -33,3 +33,12 @@ include = ["discovery*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+# Lint against the minimum supported Python so version-specific syntax (e.g. a
+# multi-line f-string expression, valid only on 3.12+) is caught locally and in
+# CI rather than at runtime on a 3.9 job.
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E9", "F"]  # syntax/runtime errors + pyflakes (unused/undefined names)

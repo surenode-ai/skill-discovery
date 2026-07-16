@@ -3,7 +3,6 @@ server; submissions refuse plaintext HTTP off-loopback and always time out."""
 
 from __future__ import annotations
 
-import io
 import json
 
 import pytest

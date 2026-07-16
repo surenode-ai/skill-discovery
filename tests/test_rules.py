@@ -5,10 +5,9 @@ report items, so the loop digest must see them too."""
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
-from discovery.agents import AGENTS, agent_keys
+from discovery.agents import agent_keys
 from discovery.cli import main
 from discovery.local import DiscoveryLocation, build_discovery_report
 from discovery.loop import inventory_digest

@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import os
 
-import pytest
 
 from discovery.cli import main
 from discovery.projects import discover_project_roots, project_label
