@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from discovery.cli import REQUEST_TIMEOUT_SECONDS, _post, main
+from discovery.cli import REQUEST_TIMEOUT_SECONDS, _dw, _pad, _post, main
 
 from tests.conftest import skill_md
 
@@ -142,14 +142,24 @@ def test_cli_accepts_ipv6_loopback(tmp_path, monkeypatch):
     assert posted["url"] == "http://[::1]:8000/discovery/reports"
 
 
-def test_cli_survives_malformed_server_response(tmp_path, monkeypatch, capsys):
-    """A server returning {} (or a non-dict) must not crash the one-shot CLI."""
-    monkeypatch.setattr("discovery.cli._post", lambda url, body, token=None: {})
+@pytest.mark.parametrize("bad", [{}, [], None, {"unexpected": 1}])
+def test_cli_malformed_server_response_is_a_failed_submission(tmp_path, monkeypatch, capsys, bad):
+    """A 2xx without the documented shape ({}, [], None, contract-less) is a
+    failed submission (exit 1 + message), not a fabricated success."""
+    monkeypatch.setattr("discovery.cli._post", lambda url, body, token=None, _v=bad: _v)
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    rc = main(["--path", str(_skill_root(tmp_path)), "--url", "http://127.0.0.1:8000"])
+    assert rc == 1
+    assert "did not return the expected response" in capsys.readouterr().err
+
+
+def test_cli_valid_server_response_reports_success(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("discovery.cli._post", lambda url, body, token=None:
+                        {"report_id": "r1", "accepted": 3, "flagged": 1, "blocked": 0})
     monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
     rc = main(["--path", str(_skill_root(tmp_path)), "--url", "http://127.0.0.1:8000"])
     assert rc == 0
-    out = capsys.readouterr().out
-    assert "Reported 1 discovered skill(s)" in out  # falls back to local item count
+    assert "Reported 3 discovered skill(s): 1 flagged, 0 blocked" in capsys.readouterr().out
 
 
 class _FakeResp:
@@ -177,8 +187,19 @@ def test_post_sets_a_timeout(monkeypatch):
 
 
 @pytest.mark.parametrize("body", ["", "   ", "not json at all", "<html>oops</html>"])
-def test_post_tolerates_empty_or_nonjson_body(monkeypatch, body):
-    """A 2xx with an empty or non-JSON body must return {} rather than raise
-    JSONDecodeError — the POST was accepted, we just have no parsed counts."""
+def test_post_returns_none_on_empty_or_nonjson_body(monkeypatch, body):
+    """A 2xx with an empty or non-JSON body returns None (never raises); the
+    caller treats a malformed response as a failed submission."""
     monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=None: _FakeResp(body))
-    assert _post("https://reports.example.com/discovery/reports", {"items": []}) == {}
+    assert _post("https://reports.example.com/discovery/reports", {"items": []}) is None
+
+
+def test_display_width_handles_wide_and_combining_chars():
+    assert _dw("ascii") == 5
+    assert _dw("部署") == 4          # two wide (CJK) columns
+    assert _dw("🚀") == 2            # emoji renders wide
+    assert _dw("é") == 1       # e + combining acute = one column
+    # _pad reaches the target display width regardless of char widths
+    assert _dw(_pad("部署", 10)) == 10
+    assert _dw(_pad("🚀x", 6)) == 6
+    assert _pad("ascii", 8) == "ascii   "

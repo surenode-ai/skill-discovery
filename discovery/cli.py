@@ -26,6 +26,7 @@ import os
 import shutil
 import sys
 import textwrap
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -55,14 +56,14 @@ def _post(url: str, body: dict, token: str | None = None) -> dict:
     )
     with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as r:
         raw = r.read().decode("utf-8", "replace").strip()
-    # A 2xx with an empty or non-JSON body must not crash the caller; the POST
-    # was accepted, we just have no parsed counts. Callers tolerate {}.
+    # Return the parsed JSON, or None for an empty/non-JSON body. The caller
+    # decides what a malformed 2xx means; None must not crash it.
     if not raw:
-        return {}
+        return None
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        return {}
+        return None
 
 
 def _resolve_url(args) -> str:
@@ -359,14 +360,42 @@ def _sev_styles(severity: str) -> tuple[str, ...]:
 
 # ---- human view ----
 
+def _dw(text: object) -> int:
+    """Display width in terminal columns: wide East-Asian and most emoji count
+    2, combining marks 0, everything else 1. A stdlib approximation (no wcwidth
+    dependency) — good for CJK; some emoji ZWJ sequences may still be off."""
+    total = 0
+    for ch in str(text):
+        if unicodedata.combining(ch):
+            continue
+        total += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+    return total
+
+
 def _clip(text: object, width: int) -> str:
-    """Collapse whitespace and truncate to width with an ellipsis."""
+    """Collapse whitespace and truncate to `width` *display columns*, ellipsis."""
     text = " ".join(str(text or "").split())
-    return text if len(text) <= width else text[: max(1, width - 1)] + "…"
+    if _dw(text) <= width:
+        return text
+    out, w = [], 0
+    for ch in text:
+        cw = _dw(ch)
+        if w + cw > width - 1:  # leave one column for the ellipsis
+            break
+        out.append(ch)
+        w += cw
+    return "".join(out) + "…"
+
+
+def _pad(text: object, width: int) -> str:
+    """Clip to `width` display columns, then pad with spaces to that width so
+    columns align even when cells contain wide/zero-width characters."""
+    clipped = _clip(text, width)
+    return clipped + " " * max(0, width - _dw(clipped))
 
 
 def _col_width(values, header: str, cap: int) -> int:
-    return max(len(header), min(max((len(v) for v in values), default=len(header)), cap))
+    return max(len(header), min(max((_dw(v) for v in values), default=len(header)), cap))
 
 
 def _emit_row(out, prefix: str, indent: int, text: object, width: int, wrap: bool) -> None:
@@ -415,9 +444,9 @@ def _print_findings_table(findings, width, color, out, wrap=True) -> None:
     for it, f in findings:
         styles = _sev_styles(f["severity"])
         dot = _style("●", color, *styles)
-        sev = _style(f"{_clip(f['severity'], sev_w):<{sev_w}}", color, *styles)
-        prefix = (f"  {dot} {sev}  {_clip(it['name'], item_w):<{item_w}}  "
-                  f"{_clip(f['category'], cat_w):<{cat_w}}  ")
+        sev = _style(_pad(f["severity"], sev_w), color, *styles)
+        prefix = (f"  {dot} {sev}  {_pad(it['name'], item_w)}  "
+                  f"{_pad(f['category'], cat_w)}  ")
         _emit_row(out, prefix, indent, f["title"], detail_w, wrap=wrap)
 
 
@@ -431,9 +460,9 @@ def _print_item_table(first: str, items, width, color, verbose, wrap, out) -> No
               f"{'where':<{where_w}}  description")
     print("  " + _style(header, color, "underline"), file=out)
     for i in items:
-        name = _style(f"{_clip(i['name'], name_w):<{name_w}}", color, "bold")  # name pops
-        prefix = (f"  {name}  {_clip(i['source'], agent_w):<{agent_w}}  "
-                  f"{_clip(_where_of(i), where_w):<{where_w}}  ")
+        name = _style(_pad(i["name"], name_w), color, "bold")  # name pops
+        prefix = (f"  {name}  {_pad(i['source'], agent_w)}  "
+                  f"{_pad(_where_of(i), where_w)}  ")
         _emit_row(out, prefix, indent, i.get("description") or "—", desc_w, wrap=wrap)
         if verbose and i.get("_path"):
             shown = _style(_shorten_home(i["_path"]), color, "dim")
@@ -608,11 +637,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"skill-discovery: could not submit to {url}: "
               f"{getattr(exc, 'reason', exc)}", file=sys.stderr)
         return 1
-    # A malicious or buggy server can return anything; don't index blindly.
-    res = res if isinstance(res, dict) else {}
-    accepted = res.get("accepted", len(report["items"]))
+    # A 2xx alone is not proof the report was processed: require the documented
+    # response shape (a JSON object with report_id/accepted). An empty, garbage,
+    # non-object, or contract-less body is a failed submission, not a success —
+    # otherwise CI/fleet automation records a success the server never gave.
+    if not isinstance(res, dict) or not ("report_id" in res or "accepted" in res):
+        print(f"skill-discovery: submitted to {url}, but the server did not return the "
+              f"expected response (a JSON object with report_id/accepted); treating as a "
+              f"failed submission.", file=sys.stderr)
+        return 1
     print(
-        f"Reported {accepted} discovered skill(s): "
+        f"Reported {res.get('accepted', len(report['items']))} discovered skill(s): "
         f"{res.get('flagged', 0)} flagged, {res.get('blocked', 0)} blocked."
     )
     return _exit_code(report, args)

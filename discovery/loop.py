@@ -107,10 +107,15 @@ def run_loop(
                     except Exception as exc:  # noqa: BLE001 - keep looping overnight
                         _log(f"submit failed, will retry next pass: {exc}")
                     else:
-                        last_digest = digest
-                        last_submit_at = clock()
-                        _log(f"{reason}: reported {res.get('accepted', count)} skill(s), "
-                             f"{res.get('flagged', 0)} flagged, {res.get('blocked', 0)} blocked")
+                        if not isinstance(res, dict):
+                            # Empty/garbage/non-object 2xx body: unconfirmed, so
+                            # don't advance state — retry on the next pass.
+                            _log("submit got an unexpected response, will retry next pass")
+                        else:
+                            last_digest = digest
+                            last_submit_at = clock()
+                            _log(f"{reason}: reported {res.get('accepted', count)} skill(s), "
+                                 f"{res.get('flagged', 0)} flagged, {res.get('blocked', 0)} blocked")
             else:
                 _log(f"no change, {count} skill(s)")
             sleep(interval)

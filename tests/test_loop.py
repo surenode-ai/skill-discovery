@@ -151,6 +151,25 @@ def test_failed_submission_retries_next_pass():
     assert len(submits.successes) == 1
 
 
+def test_malformed_submit_response_does_not_crash_and_retries():
+    clock = _Clock()
+
+    class _Malformed:
+        attempts = 0
+
+        def __call__(self, report):
+            self.attempts += 1
+            return None if self.attempts == 1 else {"accepted": 1}  # None must not crash
+
+    submits = _Malformed()
+    rc = run_loop(lambda: _report([_item()]), submits,
+                  interval=60, sleep=_driver(clock, max_passes=3), clock=clock)
+    assert rc == 0
+    # Pass 1's None is unconfirmed -> digest not recorded -> pass 2 retries and
+    # succeeds -> pass 3 quiet.
+    assert submits.attempts == 2
+
+
 def test_dry_run_loop_prints_once_then_notes_no_change(capsys):
     clock = _Clock()
     rc = run_loop(lambda: _report([_item()]), lambda r: (_ for _ in ()).throw(AssertionError),
