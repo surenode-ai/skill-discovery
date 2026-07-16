@@ -174,6 +174,21 @@ def test_cli_human_view_verbose_shows_paths_and_locations(tmp_path, capsys, monk
     assert "[not present]" in out            # empties shown with --verbose
 
 
+def test_cli_human_view_wrap_flag(tmp_path, capsys, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".claude" / "skills" / "big").mkdir(parents=True)
+    (home / ".claude" / "skills" / "big" / "SKILL.md").write_text(
+        skill_md("big", "alpha " * 50, "b"), encoding="utf-8")  # long description
+    monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
+    main(["--home", str(home), "--dry-run", "--format", "human"])
+    plain = capsys.readouterr().out
+    assert "…" in plain                                   # truncated by default
+    main(["--home", str(home), "--dry-run", "--format", "human", "--wrap"])
+    wrapped = capsys.readouterr().out
+    assert "…" not in wrapped                              # nothing cut when wrapped
+    assert wrapped.count("alpha") > plain.count("alpha")  # more of it shown
+
+
 def test_cli_fail_on_findings_sets_exit_code(tmp_path, capsys):
     # A skill that trips the heuristic floor (env dump) produces a finding.
     home = tmp_path / "home"

@@ -25,6 +25,7 @@ import json
 import os
 import shutil
 import sys
+import textwrap
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -197,6 +198,9 @@ def build_parser() -> argparse.ArgumentParser:
                              "every location checked, including the empty ones.")
     parser.add_argument("--findings", action="store_true",
                         help="Human view: show only items that have findings (triage).")
+    parser.add_argument("--wrap", action="store_true",
+                        help="Human view: wrap the skill/instruction description column "
+                             "instead of truncating it (findings always show full text).")
     parser.add_argument("--fail-on", choices=["none", "findings", "high"], default="none",
                         help="Exit non-zero if findings (or high+ findings) exist, for "
                              "CI gating. Default: none (findings are not errors).")
@@ -314,6 +318,13 @@ def _style(text: str, on: bool, *styles: str) -> str:
     return "".join(_ANSI[s] for s in styles) + text + _ANSI["reset"]
 
 
+_SEV_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+
+
+def _sev_rank(severity: object) -> int:
+    return _SEV_RANK.get(str(severity or "").lower(), 2)
+
+
 def _sev_styles(severity: str) -> tuple[str, ...]:
     s = (severity or "").lower()
     if s in ("critical", "high"):
@@ -335,6 +346,20 @@ def _col_width(values, header: str, cap: int) -> int:
     return max(len(header), min(max((len(v) for v in values), default=len(header)), cap))
 
 
+def _emit_row(out, prefix: str, indent: int, text: object, width: int, wrap: bool) -> None:
+    """Print a table row whose trailing column is `text`. Truncated to one line,
+    or (wrap) wrapped to `width` with a hanging indent so continuation lines sit
+    under the column. `prefix` may contain ANSI; `indent` is its visible width."""
+    text = " ".join(str(text or "—").split())
+    if not wrap:
+        print(prefix + _clip(text, width), file=out)
+        return
+    lines = textwrap.wrap(text, width, break_long_words=True, break_on_hyphens=False) or ["—"]
+    print(prefix + lines[0], file=out)
+    for cont in lines[1:]:
+        print(" " * indent + cont, file=out)
+
+
 def _shorten_home(path: str) -> str:
     home = os.path.expanduser("~")
     return "~" + path[len(home):] if home != "~" and path.startswith(home) else path
@@ -346,32 +371,38 @@ def _where_of(item: dict) -> str:
 
 
 def _print_findings_table(findings, width, color, out) -> None:
+    # Most severe first, and always wrap the detail: a truncated finding is
+    # useless, and there are rarely many.
+    findings = sorted(findings, key=lambda p: _sev_rank(p[1]["severity"]), reverse=True)
     sev_w = _col_width([f["severity"] for _, f in findings], "severity", 10)
     item_w = _col_width([it["name"] for it, _ in findings], "item", 22)
-    cat_w = _col_width([f["category"] for _, f in findings], "category", 22)
-    detail_w = max(16, width - sev_w - item_w - cat_w - 8)
+    cat_w = _col_width([f["category"] for _, f in findings], "category", 24)
+    detail_w = max(24, width - sev_w - item_w - cat_w - 8)
+    indent = 2 + sev_w + 2 + item_w + 2 + cat_w + 2
     header = (f"  {'severity':<{sev_w}}  {'item':<{item_w}}  "
               f"{'category':<{cat_w}}  detail")
     print(_style(header, color, "dim"), file=out)
     for it, f in findings:
         sev = _style(f"{_clip(f['severity'], sev_w):<{sev_w}}", color, *_sev_styles(f["severity"]))
-        print(f"  {sev}  {_clip(it['name'], item_w):<{item_w}}  "
-              f"{_clip(f['category'], cat_w):<{cat_w}}  {_clip(f['title'], detail_w)}", file=out)
+        prefix = (f"  {sev}  {_clip(it['name'], item_w):<{item_w}}  "
+                  f"{_clip(f['category'], cat_w):<{cat_w}}  ")
+        _emit_row(out, prefix, indent, f["title"], detail_w, wrap=True)
 
 
-def _print_item_table(first: str, items, width, color, verbose, out) -> None:
+def _print_item_table(first: str, items, width, color, verbose, wrap, out) -> None:
     name_w = _col_width([i["name"] for i in items], first, 28)
     agent_w = _col_width([i["source"] for i in items], "agent", 12)
     where_w = _col_width([_where_of(i) for i in items], "where", 22)
     desc_w = max(16, width - name_w - agent_w - where_w - 8)
+    indent = 2 + name_w + 2 + agent_w + 2 + where_w + 2
     header = (f"  {first:<{name_w}}  {'agent':<{agent_w}}  "
               f"{'where':<{where_w}}  description")
     print(_style(header, color, "dim"), file=out)
     for i in items:
-        print(f"  {_clip(i['name'], name_w):<{name_w}}  "
-              f"{_clip(i['source'], agent_w):<{agent_w}}  "
-              f"{_clip(_where_of(i), where_w):<{where_w}}  "
-              f"{_clip(i.get('description') or '—', desc_w)}", file=out)
+        prefix = (f"  {_clip(i['name'], name_w):<{name_w}}  "
+                  f"{_clip(i['source'], agent_w):<{agent_w}}  "
+                  f"{_clip(_where_of(i), where_w):<{where_w}}  ")
+        _emit_row(out, prefix, indent, i.get("description") or "—", desc_w, wrap=wrap)
         if verbose and i.get("_path"):
             print(_style(f"    {_shorten_home(i['_path'])}", color, "dim"), file=out)
 
@@ -422,10 +453,10 @@ def _render_human(report: dict, locations, args, out=None) -> None:
     rules = [it for it in items if it["location_kind"].endswith("_rules")]
     if skills:
         print(f"\n{_style(f'Skills ({len(skills)})', color, 'bold')}", file=out)
-        _print_item_table("name", skills, width, color, args.verbose, out)
+        _print_item_table("name", skills, width, color, args.verbose, args.wrap, out)
     if rules:
         print(f"\n{_style(f'Instruction files ({len(rules)})', color, 'bold')}", file=out)
-        _print_item_table("file", rules, width, color, args.verbose, out)
+        _print_item_table("file", rules, width, color, args.verbose, args.wrap, out)
     if not items:
         print(_style(f"No skills or instruction files found "
                      f"({len(locations)} locations scanned).", color, "dim"), file=out)
@@ -441,13 +472,12 @@ def _exit_code(report: dict, args) -> int:
     """0 by default (findings are not errors); --fail-on gates CI runs."""
     if args.fail_on == "none":
         return 0
-    rank = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
-    worst = max((rank.get(str(f.get("severity", "")).lower(), 2)
+    worst = max((_sev_rank(f.get("severity"))
                  for it in report.get("items", []) for f in it.get("local_findings", [])),
                 default=-1)
     if args.fail_on == "findings" and worst >= 0:
         return 1
-    if args.fail_on == "high" and worst >= rank["high"]:
+    if args.fail_on == "high" and worst >= _SEV_RANK["high"]:
         return 1
     return 0
 
