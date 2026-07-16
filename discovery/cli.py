@@ -504,9 +504,8 @@ def _render_human(report: dict, locations, args, out=None) -> None:
 
     print(_style("skill-discovery", color, "bold") + _style(f" · {device}", color, "dim"),
           file=out)
-    counts = (f"{len(skills)} skills · {len(rules)} instruction files · {agents} agents · "
-              f"{len(locations):,} locations scanned")
-    line = _style(counts, color, "dim")
+    line = (f"{len(skills)} skills · {len(rules)} instruction files · {agents} agents · "
+            f"{len(locations):,} locations scanned")  # normal weight: it is real info
     if findings:
         worst = max((f["severity"] for _, f in findings), key=_sev_rank)
         line += _style(f" · {len(findings)} findings", color, *_sev_styles(worst))
