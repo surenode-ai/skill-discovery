@@ -318,7 +318,21 @@ def _color_enabled(args) -> bool:
 
 
 _ANSI = {"reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m",
-         "red": "\033[31m", "yellow": "\033[33m", "green": "\033[32m"}
+         "underline": "\033[4m", "red": "\033[31m", "yellow": "\033[33m",
+         "green": "\033[32m"}
+
+
+def _hyperlink(text: str, path: str, on: bool) -> str:
+    """Wrap `text` in an OSC 8 terminal hyperlink to the file, so it is
+    click-to-open in supporting terminals (iTerm2, VS Code, WezTerm, kitty, …)
+    and plain text everywhere else."""
+    if not on:
+        return text
+    try:
+        uri = Path(os.path.abspath(path)).as_uri()  # correct file:// URI, spaces encoded
+    except ValueError:
+        return text
+    return f"\033]8;;{uri}\033\\{text}\033]8;;\033\\"
 
 
 def _style(text: str, on: bool, *styles: str) -> str:
@@ -395,9 +409,9 @@ def _print_findings_table(findings, width, color, out, wrap=True) -> None:
     cat_w = _col_width([f["category"] for _, f in findings], "category", 24)
     indent = 2 + 2 + sev_w + 2 + item_w + 2 + cat_w + 2  # 2 extra for the "● " dot slot
     detail_w = max(24, width - indent)
-    header = (f"    {'severity':<{sev_w}}  {'item':<{item_w}}  "
+    header = (f"{'severity':<{sev_w}}  {'item':<{item_w}}  "
               f"{'category':<{cat_w}}  detail")
-    print(_style(header, color, "dim"), file=out)
+    print("    " + _style(header, color, "underline"), file=out)
     for it, f in findings:
         styles = _sev_styles(f["severity"])
         dot = _style("●", color, *styles)
@@ -413,16 +427,17 @@ def _print_item_table(first: str, items, width, color, verbose, wrap, out) -> No
     where_w = _col_width([_where_of(i) for i in items], "where", 22)
     desc_w = max(16, width - name_w - agent_w - where_w - 8)
     indent = 2 + name_w + 2 + agent_w + 2 + where_w + 2
-    header = (f"  {first:<{name_w}}  {'agent':<{agent_w}}  "
+    header = (f"{first:<{name_w}}  {'agent':<{agent_w}}  "
               f"{'where':<{where_w}}  description")
-    print(_style(header, color, "dim"), file=out)
+    print("  " + _style(header, color, "underline"), file=out)
     for i in items:
         name = _style(f"{_clip(i['name'], name_w):<{name_w}}", color, "bold")  # name pops
         prefix = (f"  {name}  {_clip(i['source'], agent_w):<{agent_w}}  "
                   f"{_clip(_where_of(i), where_w):<{where_w}}  ")
         _emit_row(out, prefix, indent, i.get("description") or "—", desc_w, wrap=wrap)
         if verbose and i.get("_path"):
-            print(_style(f"    {_shorten_home(i['_path'])}", color, "dim"), file=out)
+            shown = _style(_shorten_home(i["_path"]), color, "dim")
+            print("    " + _hyperlink(shown, i["_path"], color), file=out)
 
 
 def _print_checked_locations(locations, out) -> None:
