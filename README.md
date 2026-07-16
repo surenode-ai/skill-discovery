@@ -346,7 +346,9 @@ python3 -m venv .venv && .venv/bin/pip install -e . pytest
 .venv/bin/python -m pytest tests/
 ```
 
-CI runs the suite on Python 3.9 and 3.12 across Linux, macOS, and Windows.
+To test across every supported Python version at once, use `nox` (see
+[CONTRIBUTING.md](CONTRIBUTING.md)). CI runs the suite on Python 3.9 through 3.14
+on Linux, with the endpoints also on macOS and Windows, plus a ruff lint.
 See [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign off required) and
 [SECURITY.md](SECURITY.md).
 

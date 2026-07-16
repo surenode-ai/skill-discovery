@@ -15,14 +15,26 @@ jobs:
           python-version: "3.12"
       - run: pip install ruff
       - name: Lint (target py39 catches version-specific syntax)
-        run: ruff check discovery tests
+        run: ruff check discovery tests noxfile.py
 
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.9", "3.12"]
+        # Every supported version on Linux; the endpoints (min + max) on macOS
+        # and Windows. Keep in sync with noxfile.py and pyproject classifiers
+        # when a new Python ships.
+        include:
+          - { os: ubuntu-latest, python: "3.9" }
+          - { os: ubuntu-latest, python: "3.10" }
+          - { os: ubuntu-latest, python: "3.11" }
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: ubuntu-latest, python: "3.14" }
+          - { os: macos-latest, python: "3.9" }
+          - { os: macos-latest, python: "3.14" }
+          - { os: windows-latest, python: "3.9" }
+          - { os: windows-latest, python: "3.14" }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

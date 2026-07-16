@@ -36,11 +36,41 @@ not decide, and it talks to exactly one configured server.
 ## Workflow
 
 1. Fork, branch, make the change.
-2. Run the tests: `python3 -m pytest tests/` (all green before review; CI runs
-   them on Python 3.9/3.12 across Linux and macOS).
+2. Run the tests (see Testing and CI below); all green before review.
 3. Sanity-check the CLI end to end:
    `skill-discovery --path <some-skills-dir> --dry-run --print-json`.
 4. Open a PR with a clear description of the behavior change.
+
+## Testing and CI
+
+The suite is plain `pytest`. Against a single interpreter:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -e . pytest
+.venv/bin/python -m pytest tests/
+```
+
+Against every supported Python version at once, use
+[nox](https://nox.thea.codes/) (each interpreter must be installed, e.g. via
+pyenv or uv):
+
+```bash
+pip install nox
+nox                 # tests on 3.9 through 3.14, plus a ruff lint session
+nox -s tests-3.13   # just one version
+nox -s lint         # ruff only
+```
+
+CI (GitHub Actions, `.github/workflows/ci.yml`) runs on every push and PR:
+
+- **Lint:** `ruff check` with `target-version = py39`, so syntax that is not
+  valid on the minimum supported Python is caught before it reaches a test job.
+- **Tests:** every supported version (3.9 through 3.14) on Linux, plus the
+  endpoints (3.9 and 3.14) on macOS and Windows, then an offline CLI smoke test.
+
+When a new Python version ships, add it in three places: `PYTHON_VERSIONS` in
+`noxfile.py`, the matrix in `.github/workflows/ci.yml`, and the classifiers in
+`pyproject.toml`.
 
 ## Developer Certificate of Origin
 
