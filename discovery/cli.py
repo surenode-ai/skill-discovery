@@ -502,8 +502,8 @@ def _render_human(report: dict, locations, args, out=None) -> None:
         print(_style(f"No skills or instruction files found "
                      f"({len(locations)} locations scanned).", color, "dim"), file=out)
 
-    print(f"\n{_style('run --json for the full report · -v for paths and every '
-                      'location scanned', color, 'dim')}", file=out)
+    footer = "run --json for the full report · -v for paths and every location scanned"
+    print("\n" + _style(footer, color, "dim"), file=out)
     if args.verbose:
         print(file=out)
         _print_checked_locations(locations, out)

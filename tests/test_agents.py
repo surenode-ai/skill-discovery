@@ -4,6 +4,7 @@ OS-agnostic report identity (posix separators everywhere)."""
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -170,7 +171,7 @@ def test_cli_human_view_verbose_shows_paths_and_locations(tmp_path, capsys, monk
     monkeypatch.setattr("discovery.local.configure_scanner", lambda backend: "fake")
     assert main(["--home", str(home), "--dry-run", "--format", "human", "-v"]) == 0
     out = capsys.readouterr().out
-    assert "deploy/SKILL.md" in out          # the item's full path sub-line
+    assert os.path.join("deploy", "SKILL.md") in out   # path sub-line (native separators)
     assert "Locations checked:" in out
     assert "[not present]" in out            # empties shown with --verbose
 
