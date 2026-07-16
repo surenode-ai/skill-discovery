@@ -151,14 +151,14 @@ agents under your home directory and auto discovers in repo project skills.
 | `-v`, `--verbose` | Human view: show each item's full path and list every location checked |
 | `--findings` | Human view: show only items that have findings |
 | `--no-wrap` | Human view: truncate long descriptions and finding details to one line each (denser output; default wraps) |
-| `--fail-on none\|findings\|high` | Exit non-zero if findings (or high+ findings) exist, for CI gating (default `none`) |
+| `--fail-on none\|findings\|high` | Exit nonzero if findings (or high+ findings) exist, for CI gating (default `none`) |
 | `--print-json` | Print the report before submitting |
 | `--url`, `--token` | Server base URL and bearer token (see environment below) |
 | `--allow-http` | Permit plaintext `http://` to a non-loopback server. Otherwise refused, since the report and token would go unencrypted; loopback is always allowed |
 
 ## Reporting to a governance server (fleet use)
 
-Submission is opt-in: with no server configured, `skill-discovery` just prints
+Submission is opt in: with no server configured, `skill-discovery` just prints
 the inventory (as above) and never posts anywhere. Point it at a server (via
 `--url` or `SKILL_DISCOVERY_SERVER_URL`) implementing the open
 `POST /discovery/reports` contract, and the same command turns local inventory
