@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "skill-discovery",
+  "displayName": "Skill Discovery",
+  "description": "Inventory the AI-agent skills and instruction files installed on this machine. Scans where Claude Code, Codex, Cursor, Copilot, Windsurf, and other agents store skills and standing instructions, then reports what is actually there.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Surenode",
+    "email": "oss@surenode.ai",
+    "url": "https://github.com/surenode-ai"
+  },
+  "homepage": "https://github.com/surenode-ai/skill-discovery",
+  "repository": "https://github.com/surenode-ai/skill-discovery",
+  "license": "Apache-2.0",
+  "keywords": ["skills", "inventory", "security", "posture", "ai-agents", "governance"]
+}

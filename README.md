@@ -80,6 +80,30 @@ For each skill you get:
 - **Sanitization findings**: secrets and PII that would be redacted before any
   upload, plus personal home directory paths worth knowing about.
 
+## Use it as a Claude Code plugin
+
+This repo is also a [Claude Code](https://claude.com/claude-code) plugin
+marketplace, so you can run the inventory without leaving your agent. Add the
+marketplace and install the plugin:
+
+```
+/plugin marketplace add surenode-ai/skill-discovery
+/plugin install skill-discovery@surenode
+```
+
+The plugin bundles this CLI, so no separate `pip install` is needed — it runs
+the tool from the installed plugin using `uv`/`pipx` if present, otherwise plain
+Python (3.9+). Once installed you can:
+
+- **Ask in natural language** — e.g. "what agent skills are installed on my
+  machine?" triggers the `inventory` skill, which runs an offline `--dry-run`
+  scan and summarizes the findings, skills, and instruction files.
+- **Run the command explicitly** — `/skill-discovery:scan` runs the same scan;
+  append any CLI flag, e.g. `/skill-discovery:scan --claude -v`.
+
+Both default to `--dry-run` (zero network calls). See the
+[CLI reference](#cli-reference) for the full flag set.
+
 ## Agent support matrix
 
 Two kinds of location are inventoried. Skill roots hold SKILL.md folders and

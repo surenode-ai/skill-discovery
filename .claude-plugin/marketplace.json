@@ -1,0 +1,26 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "surenode",
+  "description": "Surenode's Claude Code plugins for AI-agent skill governance and posture.",
+  "owner": {
+    "name": "Surenode",
+    "email": "oss@surenode.ai",
+    "url": "https://github.com/surenode-ai"
+  },
+  "plugins": [
+    {
+      "name": "skill-discovery",
+      "source": "./",
+      "description": "Inventory the AI-agent skills and instruction files installed on this machine, then report what is actually there.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Surenode",
+        "email": "oss@surenode.ai"
+      },
+      "homepage": "https://github.com/surenode-ai/skill-discovery",
+      "license": "Apache-2.0",
+      "category": "security",
+      "keywords": ["skills", "inventory", "security", "posture", "ai-agents", "governance"]
+    }
+  ]
+}
