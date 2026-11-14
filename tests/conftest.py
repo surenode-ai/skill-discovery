@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -13,6 +15,20 @@ from discovery import scanning  # noqa: E402
 
 def skill_md(name: str, description: str, body: str) -> str:
     return f"---\nname: {name}\ndescription: {description}\n---\n\n{body}\n"
+
+
+def _symlinks_allowed() -> bool:
+    """Windows needs a privilege (or Developer Mode) to create symlinks."""
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            os.symlink(__file__, os.path.join(d, "probe"))
+            return True
+        except OSError:
+            return False
+
+
+requires_symlink = pytest.mark.skipif(
+    not _symlinks_allowed(), reason="os.symlink needs a privilege this account lacks")
 
 
 @pytest.fixture(autouse=True)

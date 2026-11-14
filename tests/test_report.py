@@ -10,7 +10,7 @@ from discovery import scanning
 from discovery.local import DiscoveryLocation, _fingerprint, build_discovery_report
 from discovery.scanning import Finding, Severity
 
-from tests.conftest import skill_md
+from tests.conftest import requires_symlink, skill_md
 
 
 class _FakeScanner:
@@ -117,6 +117,7 @@ def test_full_skill_redacts_secret_in_bundled_script(tmp_path, monkeypatch):
     assert "[redacted:api-key]" in candidate["run.py"]
 
 
+@requires_symlink
 def test_rule_file_symlink_is_not_followed(tmp_path, monkeypatch):
     """A rule-file glob must not follow a symlink to an arbitrary target the
     way an unguarded read would (e.g. .cursor/rules/x.mdc -> ~/.ssh/id_rsa)."""
@@ -205,6 +206,7 @@ def test_unscannable_script_becomes_a_report_finding(tmp_path, monkeypatch):
     assert "unscannable-executable" in rule_ids
 
 
+@requires_symlink
 def test_symlinked_skill_md_produces_no_phantom_item(tmp_path, monkeypatch):
     root = tmp_path / "skills"
     (root / "ghost").mkdir(parents=True)

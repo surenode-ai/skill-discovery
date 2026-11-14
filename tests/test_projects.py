@@ -10,7 +10,7 @@ import os
 from discovery.cli import main
 from discovery.projects import discover_project_roots, project_label
 
-from tests.conftest import skill_md
+from tests.conftest import requires_symlink, skill_md
 
 
 def _skill(root, name="deploy"):
@@ -77,6 +77,7 @@ def test_time_budget_truncates(tmp_path):
     assert truncated is True
 
 
+@requires_symlink
 def test_symlinked_dir_is_not_followed(tmp_path):
     _skill(tmp_path / "real" / ".claude" / "skills")
     os.symlink(tmp_path / "real", tmp_path / "link")
