@@ -74,6 +74,9 @@ class CompositeScanner:
                 errors.append(str(exc))
         if ran == 0 and errors:
             raise ScannerError("; ".join(errors))
+        # A backend that failed while others ran must not vanish from the report.
+        findings.extend(Finding("local.scanner_backend_failed", "scanner_error",
+                                Severity.medium, _scrub(e, cap=300)) for e in errors)
         return findings
 
 

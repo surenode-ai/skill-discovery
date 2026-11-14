@@ -51,26 +51,19 @@ class SkillSpectorScanner:
                 "uv tool install git+https://github.com/NVIDIA/skillspector.git"
             )
         workdir = tempfile.mkdtemp(prefix="skill-discovery-scan-")
-        report_path = os.path.join(workdir, "_report.json")
         skill_dir = os.path.join(workdir, "skill")
         os.makedirs(skill_dir, exist_ok=True)
         try:
             self._write_folder(files, skill_dir)
-            cmd = [self._command, "scan", skill_dir, "--format", "json",
-                   "--output", report_path, *self._extra]
+            # No --output: SkillSpector refuses it on Windows, so the JSON comes on stdout.
+            cmd = [self._command, "scan", skill_dir, "--format", "json", *self._extra]
             try:
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=self._timeout)
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise ScannerError(f"skillspector failed to run: {exc}") from exc
 
-            # Findings are read from the report; a non-zero exit just signals
-            # "findings present", which is expected, not an error.
-            raw = ""
-            if os.path.exists(report_path):
-                with open(report_path, "r", encoding="utf-8") as fh:
-                    raw = fh.read().strip()
-            if not raw:
-                raw = (proc.stdout or "").strip()
+            # A non-zero exit just signals "findings present", which is expected, not an error.
+            raw = (proc.stdout or "").strip()
             if not raw:
                 if proc.returncode not in (0, 1):  # 0/1 are clean/findings; else a real failure
                     # Collapse newlines from untrusted scanner output (log-injection safety).
